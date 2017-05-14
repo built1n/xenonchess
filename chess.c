@@ -30,7 +30,7 @@ int count_material(const struct chess_ctx *ctx, int color)
     return total;
 }
 
-void count_space_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
+bool count_space_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
     int *count = data;
     (*count)++;
@@ -40,6 +40,7 @@ void count_space_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
         if(ctx->board[y][x].color != NONE) /* enemy */
             (*count)++;
     }
+    return true;
 }
 
 int count_space(const struct chess_ctx *ctx, int color)
@@ -214,7 +215,7 @@ struct check_info {
     bool checked;
 };
 
-void detect_check_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
+bool detect_check_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
     struct check_info *info = data;
     if(move.type == NORMAL)
@@ -222,8 +223,12 @@ void detect_check_cb(void *data, const struct chess_ctx *ctx, struct move_t move
         int x = move.data.normal.to.x,
             y = move.data.normal.to.y;
         if(ctx->board[y][x].type == KING && ctx->board[y][x].color == info->color)
+        {
             info->checked = true;
+            return false;
+        }
     }
+    return true;
 }
 
 bool king_in_check(const struct chess_ctx *ctx, int color)
@@ -258,10 +263,10 @@ struct move_t construct_move(int color, int y, int x, int dy, int dx)
     return ret;
 }
 
-void gen_and_call(const struct chess_ctx *ctx,
+bool gen_and_call(const struct chess_ctx *ctx,
                   int y, int x,
                   int dy, int dx,
-                  void (*cb)(void *data, const struct chess_ctx*, struct move_t),
+                  bool (*cb)(void *data, const struct chess_ctx*, struct move_t),
                   void *data, bool enforce_check, bool in_check)
 {
     struct move_t move = construct_move(ctx->board[y][x].color,
@@ -285,15 +290,15 @@ void gen_and_call(const struct chess_ctx *ctx,
 
         /* move puts player in check */
         if(check_after)
-            return;
+            return true;
     }
 
-    cb(data, ctx, move);
+    return cb(data, ctx, move);
 }
 
 void for_each_move(const struct chess_ctx *ctx,
                    int y, int x,
-                   void (*cb)(void *data, const struct chess_ctx*, struct move_t),
+                   bool (*cb)(void *data, const struct chess_ctx*, struct move_t),
                    void *data, bool enforce_check)
 {
     assert(valid_coords(y, x));
@@ -315,17 +320,22 @@ void for_each_move(const struct chess_ctx *ctx,
         if(!valid_coords(y + dy, x))
             break;
         for(int dx = -1; dx <= 1; dx += 2)
+        {
             if(enemy_occupied(ctx, y + dy, x + dx, piece->color))
             {
-                gen_and_call(ctx, y, x, dy, dx, cb, data, enforce_check, in_check);
+                if(!gen_and_call(ctx, y, x, dy, dx, cb, data, enforce_check, in_check))
+                    return;
             }
+        }
         if(!occupied(ctx, y + dy, x))
-            gen_and_call(ctx, y, x, dy, 0, cb, data, enforce_check, in_check);
+            if(!gen_and_call(ctx, y, x, dy, 0, cb, data, enforce_check, in_check))
+                return;
         /* 2 squares on first move */
         if((ctx->to_move == WHITE && y == 1) ||
            (ctx->to_move == BLACK && y == 6))
             if(!occupied(ctx, y + 2 * dy, x) && !occupied(ctx, y + dy, x))
-                gen_and_call(ctx, y, x, 2 * dy, 0, cb, data, enforce_check, in_check);
+                if(!gen_and_call(ctx, y, x, 2 * dy, 0, cb, data, enforce_check, in_check))
+                    return;
         break;
     }
     case ROOK:
@@ -343,12 +353,16 @@ void for_each_move(const struct chess_ctx *ctx,
                 if(!clear)
                     break;
                 if(!occupied(ctx, y + d.y, x + d.x))
-                    gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check);
+                {
+                    if(!gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check))
+                        return;
+                }
                 else
                 {
                     /* occupied square */
                     if(enemy_occupied(ctx, y + d.y, x + d.x, piece->color))
-                        gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check);
+                        if(!gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check))
+                            return;
                     clear = false;
                 }
             }
@@ -367,12 +381,16 @@ void for_each_move(const struct chess_ctx *ctx,
             if(valid_coords(y + d.y, x + d.x))
             {
                 if(!occupied(ctx, y + d.y, x + d.x))
-                    gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check);
+                {
+                    if(!gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check))
+                        return;
+                }
                 else
                 {
                     /* occupied square */
                     if(enemy_occupied(ctx, y + d.y, x + d.x, piece->color))
-                        gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check);
+                        if(!gen_and_call(ctx, y, x, d.y, d.x, cb, data, enforce_check, in_check))
+                            return;
                 }
             }
             ++moves;
@@ -470,7 +488,7 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
 
 }
 
-void toplev_eval_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
+bool toplev_eval_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
     //printf("evaluating move: ");
     //print_move(ctx, move);
@@ -485,44 +503,7 @@ void toplev_eval_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
         best->best_found = move;
     }
     printf("score: %d, best: %d\n", score, best->highest_score);
-}
-
-void toplev_worst_eval_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
-{
-    struct worst_data *worst = data;
-    struct chess_ctx local = *ctx;
-    execute_move(&local, move);
-    /* exec flips player */
-    int score = eval_position(&local, inv_player(ctx->to_move), worst->depth);
-    if(score < worst->lowest_score || (score == worst->lowest_score && rand() % 2 == 0))
-    {
-        worst->lowest_score = score;
-        worst->worst_found = move;
-    }
-    //printf("highest score found is %d\n", worst->highest_score);
-    //print_ctx(&local);
-}
-
-struct move_t worst_move(const struct chess_ctx *ctx, int *score, int depth)
-{
-    struct worst_data worst;
-    worst.worst_found.type = NOMOVE;
-    worst.lowest_score = 99999;
-    worst.depth = depth;
-    /* for each piece, evaluate result of each move */
-    for(int y = 0; y < 8; ++y)
-    {
-        for(int x = 0; x < 8; ++x)
-        {
-            if(ctx->board[y][x].color == ctx->to_move)
-            {
-                for_each_move(ctx, y, x, toplev_worst_eval_cb, &worst, true);
-            }
-        }
-    }
-    if(score)
-        *score = worst.lowest_score;
-    return worst.worst_found;
+    return true;
 }
 
 struct move_t best_move(const struct chess_ctx *ctx, int *score, int depth)
@@ -591,25 +572,31 @@ struct legal_data {
     bool legal;
 };
 
-void legal_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
+bool legal_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
     struct legal_data *info = data;
     switch(info->move.type)
     {
     case PROMOTION:
+    {
         info->legal = true;
-        break;
+        return false;
+    }
     case NORMAL:
     {
         struct coordinates *to = &move.data.normal.to;
         struct coordinates *comp = &info->move.data.normal.to;
         if(to->x == comp->x && to->y == comp->y)
+        {
             info->legal = true;
+            return false;
+        }
         break;
     }
     default:
         assert(false);
     }
+    return true;
 }
 
 bool legal_move(const struct chess_ctx *ctx, struct move_t move)
@@ -695,7 +682,61 @@ struct move_t get_move(enum player color)
     return ret;
 }
 
-#define DEPTH 2
+struct negamax_info {
+    int best;
+    int depth;
+    int a, b;
+    struct move_t move;
+};
+
+int negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best);
+
+bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
+{
+    struct negamax_info *info = data;
+    struct chess_ctx local = *ctx;
+    execute_move(&local, move);
+    int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
+    if(v > info->best)
+    {
+        info->best = v;
+        info->move = move;
+    }
+    info->a = MAX(info->a, v);
+    if(info->a >= info->b)
+        return false;
+    return true;
+}
+
+int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best)
+{
+    if(!depth)
+        return eval_position(ctx, color, 0);
+
+    struct negamax_info info;
+    info.best = -99999999;
+    info.move.type = NOMOVE;
+    info.depth = depth;
+    info.a = a;
+    info.b = b;
+
+    for(int y = 0; y < 8; ++y)
+    {
+        for(int x = 0; x < 8; ++x)
+        {
+            if(ctx->board[y][x].color == ctx->to_move)
+            {
+                /* recurse */
+                for_each_move(ctx, y, x, negamax_cb, &info, true);
+            }
+        }
+    }
+    if(best)
+        *best = info.move;
+    return info.best;
+}
+
+#define DEPTH 4
 
 int main()
 {
@@ -725,7 +766,8 @@ int main()
             printf("Black is in check\n");
 
         printf("Thinking...\n");
-        struct move_t best = best_move(&ctx, NULL, DEPTH);
+        struct move_t best;
+        best_move_negamax(&ctx, DEPTH, -99999, 99999, ctx.to_move, &best);
         print_move(&ctx, best);
         execute_move(&ctx, best);
         print_ctx(&ctx);
