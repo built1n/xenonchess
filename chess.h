@@ -9,7 +9,7 @@
 
 #define COORD_END 0xf00d
 #define ARRAYLEN(x) (sizeof(x)/sizeof((x)[0]))
-#define ABS(x) ((x)<0:-(x):(x))
+#define ABS(x) ((x)<0?-(x):(x))
 #define MAX(a, b) ((a)>(b)?(a):(b))
 
 /* don't change any of these enum values */
