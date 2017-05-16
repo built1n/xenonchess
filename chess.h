@@ -35,7 +35,7 @@ struct move_t {
     enum { NORMAL, CASTLE, PROMOTION, NOMOVE } type;
     union {
         struct { struct coordinates to, from; } normal;
-        enum { QUEENSIDE, KINGSIDE } castle_style;
+        enum { QUEENSIDE = 0, KINGSIDE } castle_style;
         struct promotion_t promotion;
     } data;
 };
