@@ -49,17 +49,18 @@ struct chess_ctx {
 
 int eval_position(const struct chess_ctx *ctx, int color);
 void execute_move(struct chess_ctx *ctx, struct move_t move);
-inline bool gen_and_call(const struct chess_ctx *ctx,
-                         int y, int x,
-                         int dy, int dx,
-                         bool (*cb)(void *data, const struct chess_ctx*, struct move_t),
-                         void *data, bool enforce);
+bool gen_and_call(const struct chess_ctx *ctx,
+                  int y, int x,
+                  int dy, int dx,
+                  bool (*cb)(void *data, const struct chess_ctx*, struct move_t),
+                  void *data, bool enforce);
 void for_each_move(const struct chess_ctx *ctx,
                    int y, int x,
                    bool (*cb)(void *data, const struct chess_ctx*, struct move_t),
-                   void *data, bool enforce_check);
+                   void *data, bool enforce_check, bool consider_castle);
 bool king_in_check(const struct chess_ctx *ctx, int color, struct coordinates *king);
 void print_ctx(const struct chess_ctx *ctx);
 int best_move_negamax(const struct chess_ctx *ctx, int depth,
                       int a, int b,
                       int color, struct move_t *best);
+bool can_castle(const struct chess_ctx *ctx, int color, int style);

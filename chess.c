@@ -1,9 +1,9 @@
 #include "chess.h"
 
-#define DEPTH 2
+#define DEPTH 7
 
-//#define AUTOMATCH
-#define UCI
+#define AUTOMATCH
+//#define UCI
 
 int count_material(const struct chess_ctx *ctx, int color)
 {
@@ -25,10 +25,12 @@ int count_material(const struct chess_ctx *ctx, int color)
             /* pawn near promotion */
             if(ctx->board[y][x].type == PAWN)
             {
-                if((y >= 6 && ctx->board[y][x].color == WHITE) ||
-                   (y <= 1 && ctx->board[y][x].color == BLACK))
+                if((y >= 5 && ctx->board[y][x].color == WHITE) ||
+                   (y <= 2 && ctx->board[y][x].color == BLACK))
                     total += 4;
             }
+            if(ctx->board[y][x].type == KING && (y == 2 || y == 6)) /* castled king */
+                total += 10;
         }
     }
     //printf("color %d has %d material\n", color, total);
@@ -61,7 +63,7 @@ int count_space(const struct chess_ctx *ctx, int color)
         {
             if(ctx->board[y][x].color == color)
             {
-                for_each_move(ctx, y, x, count_space_cb, &space, true);
+                for_each_move(ctx, y, x, count_space_cb, &space, true, true);
             }
         }
     }
@@ -91,15 +93,18 @@ int eval_position(const struct chess_ctx *ctx, int color)
     score += count_space(ctx, color);
     score -= count_space(ctx, inv_player(color));
 
+    if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
+        score += 5;
+
     if(king_in_check(ctx, color, NULL))
     {
-        score -= 5;
+        score -= 9;
         if(king_in_checkmate(ctx, color))
             score -= 2000;
     }
     else if(king_in_check(ctx, inv_player(color), NULL))
     {
-        score += 5;
+        score += 2;
         if(king_in_checkmate(ctx, inv_player(color)))
             score += 2000;
     }
@@ -205,7 +210,7 @@ bool friendly_occupied(const struct chess_ctx *ctx, int y, int x, int color)
 }
 #endif
 
-#define enemy_occupied(ctx, y, x, c) ((ctx)->board[(y)][(x)].color == NONE ? false : ((ctx)->board[(y)][(x)].color == inv_player(c)))
+#define enemy_occupied(ctx, y, x, c) (valid_coords((y),(x))?((ctx)->board[(y)][(x)].color == NONE ? false : ((ctx)->board[(y)][(x)].color == inv_player(c))):false)
 
 #if 0
 bool enemy_occupied(const struct chess_ctx *ctx, int y, int x, int color)
@@ -229,7 +234,7 @@ bool enemy_occupied(const struct chess_ctx *ctx, int y, int x, int color)
 }
 #endif
 
-#define occupied(ctx, y, x) ((ctx)->board[(y)][(x)].color != NONE)
+#define occupied(ctx, y, x) (valid_coords((y),(x))?((ctx)->board[(y)][(x)].color != NONE):false)
 
 struct check_info {
     int color;
@@ -267,7 +272,7 @@ bool king_in_check(const struct chess_ctx *ctx, int color, struct coordinates *k
             /* check enemy pieces */
             if(ctx->board[y][x].color == inv_player(color))
             {
-                for_each_move(ctx, y, x, detect_check_cb, &info, false);
+                for_each_move(ctx, y, x, detect_check_cb, &info, false, false);
                 if(info.checked)
                     goto early;
             }
@@ -319,7 +324,7 @@ bool square_threatened(const struct chess_ctx *ctx, int ty, int tx, int color)
             /* check enemy pieces */
             if(ctx->board[y][x].color == inv_player(color))
             {
-                for_each_move(ctx, y, x, threatened_cb, &info, false);
+                for_each_move(ctx, y, x, threatened_cb, &info, false, false);
                 if(info.threatened)
                     return true;
             }
@@ -328,7 +333,7 @@ bool square_threatened(const struct chess_ctx *ctx, int ty, int tx, int color)
     return false;
 }
 
-inline struct move_t construct_move(int color, int y, int x, int dy, int dx)
+struct move_t construct_move(int color, int y, int x, int dy, int dx)
 {
     struct move_t ret;
     ret.color = color;
@@ -395,7 +400,7 @@ inline bool gen_and_call(const struct chess_ctx *ctx,
 void for_each_move(const struct chess_ctx *ctx,
                    int y, int x,
                    bool (*cb)(void *data, const struct chess_ctx*, struct move_t),
-                   void *data, bool enforce_check)
+                   void *data, bool enforce_check, bool consider_castle)
 {
     assert(valid_coords(y, x));
 
@@ -492,56 +497,19 @@ void for_each_move(const struct chess_ctx *ctx,
             ++moves;
         }
 
-#if 0
         /* castling */
-        if(piece->type == KING)
+        if(consider_castle && piece->type == KING)
         {
-            /* white = 0, black = 1 */
-            int idx = piece->color == WHITE ? 0 : 1;
-
-            if(!ctx->king_moved[idx])
+            if(x == 4 && (y == 0 || y == 7))
             {
-                //if(!king_in_check(ctx, piece->color, NULL))
-                {
-                    /* handle both queenside and kingside */
-                    if(!ctx->rook_moved[idx][0]) /* queenside */
-                    {
-                        bool clear = true;
-                        for(int i = 1; i <= 3; ++i)
-                            if(ctx->board[y][i].color != NONE)
-                                clear = false;
-                        if(clear)
-                        {
-                            /* check that the two squares the king
-                               must pass through aren't threatened */
-                            if(!square_threatened(ctx, y, 3, piece->color))
-                            {
-                                if(!gen_and_call(ctx, y, x, 0, -2, cb, data, enforce_check))
-                                    return;
-                            }
-                        }
-                    }
-                    if(!ctx->rook_moved[idx][1]) /* kingside */
-                    {
-                        bool clear = true;
-                        for(int i = 5; i <= 6; ++i)
-                            if(ctx->board[y][i].color != NONE)
-                                clear = false;
-                        if(clear)
-                        {
-                            /* check that the square the king must
-                             * pass through isn't threatened */
-                            if(!square_threatened(ctx, y, 5, piece->color))
-                            {
-                                if(!gen_and_call(ctx, y, x, 0, 2, cb, data, enforce_check))
-                                    return;
-                            }
-                        }
-                    }
-                }
+                if(can_castle(ctx, piece->color, QUEENSIDE))
+                    if(!gen_and_call(ctx, y, x, 0, -2, cb, data, false))
+                        return;
+                if(can_castle(ctx, piece->color, KINGSIDE))
+                    if(!gen_and_call(ctx, y, x, 0, 2, cb, data, false))
+                        return;
             }
         }
-#endif
         break;
     }
     default:
@@ -627,7 +595,7 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
         fromname[0] = 'a' + move.data.normal.from.x;
         fromname[1] = '1' + move.data.normal.from.y;
         fromname[2] = '\0';
-        printf("bestmove %s%s\n", fromname, name);
+        printf("%s%s\n", fromname, name);
 #else
         if(to->type != EMPTY)
         {
@@ -652,6 +620,10 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
         fromname[0] = 'a' + move.data.promotion.from.x;
         fromname[1] = '1' + move.data.promotion.from.y;
         fromname[2] = '\0';
+        char piecename[2];
+        piecename[0] = "  rnbq"[move.data.promotion.type];
+        piecename[1] = '\0';
+        printf("%s%s%s\n", fromname, name, piecename);
 #else
         printf("pawn promoted\n");
 #endif
@@ -660,7 +632,7 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
     case CASTLE:
     {
 #ifdef UCI
-        printf("%s\n", move.data.castle_style == KINGSIDE ? "O-O" : "O-O-O");
+        printf("%s\n", move.data.castle_style == KINGSIDE ? "0-0" : "0-0-0");
 #else
         printf("castles %s\n", move.data.castle_style == KINGSIDE ? "kingside" : "queenside");
 #endif
@@ -768,9 +740,41 @@ bool legal_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     return true;
 }
 
+bool can_castle(const struct chess_ctx *ctx, int color, int style)
+{
+    int k_idx = color == WHITE ? 0 : 1;
+    if(ctx->king_moved[k_idx])
+        return false;
+
+    int r_idx = style == QUEENSIDE ? 0 : 1;
+    if(ctx->rook_moved[k_idx][r_idx])
+        return false;
+
+    int start = (style == QUEENSIDE ? 1 : 5);
+    int end = (style == QUEENSIDE ? 3 : 6);
+
+    int y = color == WHITE ? 0 : 7;
+    bool clear = true;
+    for(int i = start; i <= end; ++i)
+        if(ctx->board[y][i].type != EMPTY)
+            clear = false;
+
+    if(clear)
+    {
+        int dx = style == QUEENSIDE ? -1 : 1;
+        if(!square_threatened(ctx, y, 4 + dx, color) &&
+           !square_threatened(ctx, y, 4 + 2*dx, color))
+            if(!king_in_check(ctx, color, NULL))
+                return true;
+    }
+    return false;
+}
+
 bool legal_move(const struct chess_ctx *ctx, struct move_t move)
 {
-    if(move.type == NORMAL)
+    switch(move.type)
+    {
+    case NORMAL:
     {
         struct coordinates from = move.data.normal.from;
 
@@ -780,11 +784,16 @@ bool legal_move(const struct chess_ctx *ctx, struct move_t move)
         struct legal_data data;
         data.legal = false;
         data.move = move;
-        for_each_move(ctx, move.data.normal.from.y, move.data.normal.from.x, legal_cb, &data, true);
+        for_each_move(ctx, move.data.normal.from.y, move.data.normal.from.x, legal_cb, &data, true, true);
         return data.legal;
     }
-    else
+    case CASTLE:
+    {
+        return can_castle(ctx, move.color, move.data.castle_style);
+    }
+    default:
         return true;
+    }
 }
 
 struct chess_ctx new_game(void)
@@ -806,6 +815,7 @@ struct chess_ctx new_game(void)
         ret.board[0][i].color = WHITE;
         ret.board[0][7 - i].type = types[i];
         ret.board[0][7 - i].color = WHITE;
+
         ret.board[7][i].type = types[i];
         ret.board[7][i].color = BLACK;
         ret.board[7][7 - i].type = types[i];
@@ -833,57 +843,9 @@ struct chess_ctx new_game(void)
     return ret;
 }
 
-struct move_t get_move(const struct chess_ctx *ctx, enum player color)
+struct move_t move_from_str(const struct chess_ctx *ctx, const char *line, int color)
 {
     struct move_t ret;
-    ret.type = NOMOVE;
-
-    char *ptr = NULL;
-    size_t sz = 0;
-    ssize_t len = getline(&ptr, &sz, stdin);
-    char *line = ptr;
-
-    if(!strncasecmp(line, "o-o-o", 5))
-    {
-        ret.color = color;
-        ret.type = CASTLE;
-        ret.data.castle_style = QUEENSIDE;
-        goto done;
-    }
-    else if(!strncasecmp(line, "o-o", 3))
-    {
-        ret.color = color;
-        ret.type = CASTLE;
-        ret.data.castle_style = KINGSIDE;
-        goto done;
-    }
-
-    if(!strncasecmp(line, "uci", 3))
-    {
-        printf("id name chessengine\n");
-        printf("uciok\n");
-    }
-
-    if(!strncasecmp(line, "isready", 7))
-    {
-        printf("readyok\n");
-    }
-
-    if(!strncasecmp(line, "help", 4))
-    {
-        best_move_negamax(ctx, DEPTH, -999999, 999999, color, &ret);
-        goto done;
-    }
-
-    if(!strncasecmp(line, "position startpos moves ", 24))
-    {
-        line += 24;
-    }
-
-    if(len < 5)
-    {
-        goto done;
-    }
 
     int x = line[0] - 'a';
     int y = line[1] - '1';
@@ -900,6 +862,117 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
         ret.data.promotion.to = (struct coordinates) { y + dy, x + dx };
         ret.data.promotion.type = QUEEN;
     }
+
+    if(valid_coords(y, x) && x == 4 && y == (color == WHITE ? 0 : 7) &&
+       ctx->board[y][x].color == color && ctx->board[y][x].type == KING &&
+       ABS(dx) == 2 && dy == 0)
+    {
+        /* castle */
+        ret.type = CASTLE;
+        ret.data.castle_style = dx > 0 ? KINGSIDE : QUEENSIDE;
+    }
+    return ret;
+}
+
+struct chess_ctx get_uci_ctx(void)
+{
+    while(1)
+    {
+        char *ptr = NULL;
+        size_t sz = 0;
+        ssize_t len = getline(&ptr, &sz, stdin);
+        char *line = ptr;
+
+        if(!strncasecmp(line, "uci", 3))
+        {
+            printf("id name chessengine\n");
+            printf("id author Franklin Wei\n");
+            printf("uciok\n");
+            fflush(stdout);
+        }
+
+        if(!strncasecmp(line, "isready", 7))
+        {
+            printf("readyok\n");
+            fflush(stdout);
+        }
+
+        if(!strncasecmp(line, "position startpos moves ", 24))
+        {
+            struct chess_ctx ctx = new_game();
+
+            line += 24;
+            len -= 24;
+            while(len > 0)
+            {
+                struct move_t move = move_from_str(&ctx, line, ctx.to_move);
+                execute_move(&ctx, move);
+                line += 5;
+                len -= 5;
+            }
+            free(ptr);
+            return ctx;
+        }
+        else if(!strncasecmp(line, "position startpos",  17))
+        {
+            free(ptr);
+            return new_game();
+        }
+
+        free(ptr);
+    }
+}
+
+struct move_t get_move(const struct chess_ctx *ctx, enum player color)
+{
+    struct move_t ret;
+    ret.type = NOMOVE;
+
+    char *ptr = NULL;
+    size_t sz = 0;
+    ssize_t len = getline(&ptr, &sz, stdin);
+    char *line = ptr;
+
+    if(!strncasecmp(line, "0-0-0", 5))
+    {
+        ret.color = color;
+        ret.type = CASTLE;
+        ret.data.castle_style = QUEENSIDE;
+        goto done;
+    }
+    else if(!strncasecmp(line, "0-0", 3))
+    {
+        ret.color = color;
+        ret.type = CASTLE;
+        ret.data.castle_style = KINGSIDE;
+        goto done;
+    }
+
+    if(!strncasecmp(line, "uci", 3))
+    {
+        printf("id name chessengine\n");
+        printf("uciok\n");
+        fflush(stdout);
+    }
+
+    if(!strncasecmp(line, "isready", 7))
+    {
+        printf("readyok\n");
+        fflush(stdout);
+    }
+
+    if(!strncasecmp(line, "help", 4))
+    {
+        best_move_negamax(ctx, DEPTH, -999999, 999999, color, &ret);
+        goto done;
+    }
+
+    if(len < 5)
+    {
+        goto done;
+    }
+
+    ret = move_from_str(ctx, line, color);
 
 done:
     free(ptr);
@@ -922,15 +995,22 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     struct chess_ctx local = *ctx;
     if(info->depth == DEPTH)
     {
-        printf("info pondering top-level move: ");
+#if defined(UCI) || DEPTH > 4
+        printf("info currmove ");
         print_move(ctx, move);
-        printf("info best score so far: %d ", info->best);
-        print_move(ctx, info->move);
+        fflush(stdout);
+#endif
+    }
+    else if(info->depth == DEPTH - 1)
+    {
+        printf("submove ");
+        print_move(ctx, move);
+        fflush(stdout);
     }
     ++pondered;
     execute_move(&local, move);
     int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
-    if(v > info->best || (v == info->best && rand() % 10 == 0))
+    if(v > info->best || (v == info->best && rand() % 4 == 0))
     {
         info->best = v;
         info->move = move;
@@ -943,29 +1023,31 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 
 int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best)
 {
-    if(!depth)
-        return eval_position(ctx, color);
-
     struct negamax_info info;
     info.best = -99999999;
     info.move.type = NOMOVE;
     info.depth = depth;
     info.a = a;
     info.b = b;
-
-    for(int y = 0; y < 8; ++y)
+    if(depth > 0)
     {
-        for(int x = 0; x < 8; ++x)
+        for(int y = 0; y < 8; ++y)
         {
-            if(ctx->board[y][x].color == ctx->to_move)
+            for(int x = 0; x < 8; ++x)
             {
-                /* recurse */
-                for_each_move(ctx, y, x, negamax_cb, &info, true);
+                if(ctx->board[y][x].color == ctx->to_move)
+                {
+                    /* recurse */
+                    for_each_move(ctx, y, x, negamax_cb, &info, true, true);
+                }
             }
         }
+        if(best)
+            *best = info.move;
     }
-    if(best)
-        *best = info.move;
+    if(!depth || info.move.type == NOMOVE) /* terminal node */
+        return eval_position(ctx, color);
+
     return info.best;
 }
 
@@ -994,35 +1076,34 @@ int main()
 {
     printf("Chessengine\n");
     srand(time(0));
-    struct chess_ctx ctx = new_game();
 #ifndef UCI
+    struct chess_ctx ctx = new_game();
     print_ctx(&ctx);
 #endif
-    while(1)
+    for(;;)
     {
 #ifndef AUTOMATCH
+
+#ifndef UCI
         struct move_t player = get_move(&ctx, ctx.to_move);
         if(player.type == NOMOVE)
         {
-#ifndef UCI
             printf("Illegal\n");
-#endif
             continue;
         }
 
         if(!legal_move(&ctx, player))
         {
-#ifndef UCI
             printf("Illegal\n");
-#endif
             continue;
         }
 
         execute_move(&ctx, player);
 
-#ifndef UCI
         print_ctx(&ctx);
         print_status(&ctx);
+#else
+        struct chess_ctx ctx = get_uci_ctx();
 #endif
 #endif
 
@@ -1039,7 +1120,9 @@ int main()
             printf("info pondered %d moves in %.2f seconds (%.1f/sec)\n", pondered,
                    time, pondered / time);
         }
+        printf("bestmove ");
         print_move(&ctx, best);
+        fflush(stdout);
 
         execute_move(&ctx, best);
 #ifndef UCI
