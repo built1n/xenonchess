@@ -1,11 +1,13 @@
-#include <unistd.h>
+#include <inttypes.h>
 #include <assert.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #define COORD_END 0xf00d
 #define ARRAYLEN(x) (sizeof(x)/sizeof((x)[0]))
@@ -45,6 +47,7 @@ struct chess_ctx {
     enum player to_move;
     bool king_moved[2];
     bool rook_moved[2][2]; /* [player][0=first file,1=eighth file] */
+    bool en_passant[2][8];
 };
 
 int eval_position(const struct chess_ctx *ctx, int color);

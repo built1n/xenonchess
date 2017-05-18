@@ -1,6 +1,6 @@
 #include "chess.h"
 
-#define DEPTH 2
+#define DEPTH 3
 
 //#define AUTOMATCH
 #define UCI
@@ -10,10 +10,10 @@ int count_material(const struct chess_ctx *ctx, int color)
     int total = 0;
     static const int values[] = { 0,
                                   1, /* pawn */
-                                  5, /* rook */
+                                  8, /* rook */
                                   3, /* knight */
                                   3, /* bishop */
-                                  15, /* queen */
+                                  20, /* queen */
                                   5  /* king */
     };
     for(int y = 0; y < 8; ++y)
@@ -29,9 +29,12 @@ int count_material(const struct chess_ctx *ctx, int color)
                 if((y >= 5 && ctx->board[y][x].color == WHITE) ||
                    (y <= 2 && ctx->board[y][x].color == BLACK))
                     total += 4;
+
+                /* pawns are more valuable the further they have advanced */
+                total += ctx->board[y][x].color == WHITE ? y : 7 - y;
             }
             if(ctx->board[y][x].type == KING && (y == 2 || y == 6)) /* castled king */
-                total += 10;
+                total += 20;
         }
     }
     //printf("color %d has %d material\n", color, total);
@@ -89,13 +92,13 @@ int eval_position(const struct chess_ctx *ctx, int color)
 {
     int score = 0;
 
-    score += count_material(ctx, color) * 3;
+    score += count_material(ctx, color) * 4;
     score -= count_material(ctx, inv_player(color)) * 2;
     score += count_space(ctx, color);
     score -= count_space(ctx, inv_player(color));
 
     if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
-        score += 5;
+        score += 25;
 
     if(king_in_check(ctx, color, NULL))
     {
@@ -105,7 +108,7 @@ int eval_position(const struct chess_ctx *ctx, int color)
     }
     else if(king_in_check(ctx, inv_player(color), NULL))
     {
-        score += 2;
+        score += 5;
         if(king_in_checkmate(ctx, inv_player(color)))
             score += 2000;
     }
@@ -304,6 +307,7 @@ struct threatened_info {
 
 bool threatened_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
+    (void) ctx;
     struct threatened_info *info = data;
 
     int x, y;
@@ -378,7 +382,9 @@ inline bool gen_and_call(const struct chess_ctx *ctx,
        (y + dy == 0 || y + dy == 7))
         promotion = true;
 
-    if(ctx->board[y][x].type == KING && ABS(dx) == 2) /* castle, must be before the next if() */
+    /* move is to castle, must be before next if(), as it relies on it
+     * to make sure it's legal */
+    if(ctx->board[y][x].type == KING && ABS(dx) == 2)
     {
         move.type = CASTLE;
         move.data.castle_style = dx > 0 ? KINGSIDE : QUEENSIDE;
@@ -403,7 +409,7 @@ inline bool gen_and_call(const struct chess_ctx *ctx,
 
         /* try all possible pieces */
         enum piece promote_pieces[] = { ROOK, KNIGHT, BISHOP, QUEEN };
-        for(int i = 0; i < ARRAYLEN(promote_pieces); ++i)
+        for(unsigned int i = 0; i < ARRAYLEN(promote_pieces); ++i)
         {
             move.data.promotion.type = promote_pieces[i];
             if(!cb(data, ctx, move))
@@ -437,6 +443,24 @@ void for_each_move(const struct chess_ctx *ctx,
 
         if(!valid_coords(y + dy, x))
             break;
+
+        /* en passant */
+        if((piece->color == WHITE && y == 4) ||
+           (piece->color == BLACK && y == 3))
+        {
+            /* piece to right */
+            int opp = piece->color == WHITE ? 1 : 0;
+            if(valid_coords(y + dy, x + 1) && ctx->en_passant[opp][x + 1])
+            {
+                if(!gen_and_call(ctx, y + dy, x, dy, 1, cb, data, enforce_check))
+                    return;
+            }
+            if(valid_coords(y + dy, x - 1) && ctx->en_passant[opp][x - 1])
+            {
+                if(!gen_and_call(ctx, y + dy, x, dy, -1, cb, data, enforce_check))
+                    return;
+            }
+        }
 
         /* 2 squares on first move */
         if((ctx->board[y][x].color == WHITE && y == 1) ||
@@ -496,6 +520,20 @@ void for_each_move(const struct chess_ctx *ctx,
     {
         const struct coordinates *moves = jump_moves[piece->type];
 
+        /* castling */
+        if(piece->type == KING && consider_castle)
+        {
+            if(x == 4 && (y == 0 || y == 7))
+            {
+                if(can_castle(ctx, piece->color, QUEENSIDE))
+                    if(!gen_and_call(ctx, y, x, 0, -2, cb, data, false))
+                        return;
+                if(can_castle(ctx, piece->color, KINGSIDE))
+                    if(!gen_and_call(ctx, y, x, 0, 2, cb, data, false))
+                        return;
+            }
+        }
+
         while(moves->x != COORD_END)
         {
             struct coordinates d = *moves;
@@ -515,20 +553,6 @@ void for_each_move(const struct chess_ctx *ctx,
                 }
             }
             ++moves;
-        }
-
-        /* castling */
-        if(consider_castle && piece->type == KING)
-        {
-            if(x == 4 && (y == 0 || y == 7))
-            {
-                if(can_castle(ctx, piece->color, QUEENSIDE))
-                    if(!gen_and_call(ctx, y, x, 0, -2, cb, data, false))
-                        return;
-                if(can_castle(ctx, piece->color, KINGSIDE))
-                    if(!gen_and_call(ctx, y, x, 0, 2, cb, data, false))
-                        return;
-            }
         }
         break;
     }
@@ -605,6 +629,9 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
         to = &ctx->board[move.data.normal.to.y][move.data.normal.to.x];
         from = &ctx->board[move.data.normal.from.y][move.data.normal.from.x];
 
+        (void) to;
+        (void) from;
+
         char name[3];
         name[0] = 'a' + move.data.normal.to.x;
         name[1] = '1' + move.data.normal.to.y;
@@ -667,6 +694,7 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
 
 void execute_move(struct chess_ctx *ctx, struct move_t move)
 {
+    memset(&ctx->en_passant[move.color == WHITE ? 0 : 1], 0, sizeof(ctx->en_passant[0]));
     switch(move.type)
     {
     case NORMAL:
@@ -679,11 +707,23 @@ void execute_move(struct chess_ctx *ctx, struct move_t move)
         to = &ctx->board[move.data.normal.to.y][move.data.normal.to.x];
         from = &ctx->board[move.data.normal.from.y][move.data.normal.from.x];
 
+        if(from->type == PAWN)
+        {
+            /* see if we've moved two squares ahead */
+            if(ABS(move.data.normal.to.y - move.data.normal.from.y) == 2)
+                ctx->en_passant[move.color == WHITE ? 0 : 1][move.data.normal.to.x] = true;
+            else if(move.data.normal.to.x - move.data.normal.from.x != 0 && to->type == EMPTY)
+            {
+                /* en passant capture */
+                ctx->board[move.data.normal.from.y][move.data.normal.to.x].type = EMPTY;
+                ctx->board[move.data.normal.from.y][move.data.normal.to.x].color = NONE;
+            }
+        }
         if(from->type == KING)
         {
             ctx->king_moved[move.color == WHITE ? 0 : 1] = true;
         }
-        if(from->type == ROOK && (move.data.normal.from.x == 0 || move.data.normal.from.x == 7))
+        else if(from->type == ROOK && (move.data.normal.from.x == 0 || move.data.normal.from.x == 7))
         {
             ctx->rook_moved[move.color == WHITE ? 0 : 1][move.data.normal.from.x == 0 ? 0 : 1] = true;
         }
@@ -714,6 +754,7 @@ void execute_move(struct chess_ctx *ctx, struct move_t move)
         ctx->board[y][rx].color = NONE;
         ctx->board[y][4+dx/2].type = ROOK;
         ctx->board[y][4+dx/2].color = move.color;
+        ctx->king_moved[move.color == WHITE ? 0 : 1] = true;
         break;
     }
     case NOMOVE:
@@ -732,6 +773,7 @@ struct legal_data {
 
 bool legal_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
+    (void) ctx;
     struct legal_data *info = data;
     switch(info->move.type)
     {
@@ -959,6 +1001,7 @@ struct chess_ctx get_uci_ctx(void)
                 len -= line - before;
             }
             free(ptr);
+            print_ctx(&ctx);
             return ctx;
         }
         else if(!strncasecmp(line, "position startpos",  17))
@@ -1035,8 +1078,8 @@ struct negamax_info {
     struct move_t move;
 };
 
-int pondered;
-int moveno = 0;
+uint64_t pondered;
+int moveno;
 
 bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
@@ -1062,7 +1105,7 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     ++pondered;
     execute_move(&local, move);
     int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
-    if(v > info->best || (v == info->best && rand() % 4 == 0))
+    if(v > info->best || (v == info->best && rand() % 2 == 0))
     {
         info->best = v;
         info->move = move;
@@ -1105,6 +1148,7 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int 
 
 void print_status(const struct chess_ctx *ctx)
 {
+    (void) ctx;
 #ifndef UCI
     if(king_in_checkmate(ctx, WHITE))
     {
@@ -1169,7 +1213,7 @@ int main()
 
         if(time)
         {
-            printf("info pondered %d moves in %.2f seconds (%.1f/sec)\n", pondered,
+            printf("info pondered %"PRIu64" moves in %.2f seconds (%.1f/sec)\n", pondered,
                    time, pondered / time);
         }
         printf("bestmove ");
