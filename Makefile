@@ -1,4 +1,4 @@
-PROGRAM_NAME = chessengine
+PROGRAM_NAME = xenonchess
 
 CC = cc
 INSTALL = install

@@ -94,8 +94,8 @@ int eval_position(const struct chess_ctx *ctx, int color)
 
     score += count_material(ctx, color) * 4;
     score -= count_material(ctx, inv_player(color)) * 2;
-    score += count_space(ctx, color);
-    score -= count_space(ctx, inv_player(color));
+    score += count_space(ctx, color) / 10;
+    score -= count_space(ctx, inv_player(color)) / 10;
 
     if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
         score += 25;
@@ -819,6 +819,12 @@ bool can_castle(const struct chess_ctx *ctx, int color, int style)
     int end = (style == QUEENSIDE ? 3 : 6);
 
     int y = color == WHITE ? 0 : 7;
+
+    int rx = style == QUEENSIDE ? 0 : 7;
+    if(ctx->board[y][rx].type != ROOK ||
+       ctx->board[y][rx].color != color)
+        return false;
+
     bool clear = true;
     for(int i = start; i <= end; ++i)
         if(ctx->board[y][i].type != EMPTY)
@@ -1087,7 +1093,7 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     struct chess_ctx local = *ctx;
     if(info->depth == DEPTH)
     {
-#if defined(UCI) || DEPTH > 4
+#if defined(UCI) || DEPTH > 3
         printf("info currmove ");
         print_move(ctx, move);
         printf("info currmovenumber %d\n", ++moveno);
@@ -1105,7 +1111,7 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     ++pondered;
     execute_move(&local, move);
     int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
-    if(v > info->best || (v == info->best && rand() % 2 == 0))
+    if(v > info->best || (v == info->best && rand() % 8 == 0))
     {
         info->best = v;
         info->move = move;
@@ -1210,12 +1216,6 @@ int main()
         best_move_negamax(&ctx, DEPTH, -999999, 999999, ctx.to_move, &best);
         clock_t end = clock();
         float time = (float)(end - start) / CLOCKS_PER_SEC;
-
-        if(time)
-        {
-            printf("info pondered %"PRIu64" moves in %.2f seconds (%.1f/sec)\n", pondered,
-                   time, pondered / time);
-        }
         printf("bestmove ");
         print_move(&ctx, best);
         fflush(stdout);
@@ -1225,6 +1225,12 @@ int main()
         print_ctx(&ctx);
         print_status(&ctx);
 #endif
+
+        if(time)
+        {
+            printf("info pondered %"PRIu64" moves in %.2f seconds (%.1f/sec)\n", pondered,
+                   time, pondered / time);
+        }
 
         if(best.type == NOMOVE)
         {
