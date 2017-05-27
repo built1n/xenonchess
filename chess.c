@@ -1,9 +1,9 @@
 #include "chess.h"
 
-#define DEPTH 3
+#define DEPTH 2
 
-//#define AUTOMATCH
-#define UCI
+#define AUTOMATCH
+//#define UCI
 
 int count_material(const struct chess_ctx *ctx, int color)
 {
@@ -983,7 +983,7 @@ struct chess_ctx get_uci_ctx(void)
 
         if(!strncasecmp(line, "uci", 3))
         {
-            printf("id name chessengine\n");
+            printf("id name XenonChess\n");
             printf("id author Franklin Wei\n");
             printf("uciok\n");
             fflush(stdout);
@@ -1047,7 +1047,7 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
 
     if(!strncasecmp(line, "uci", 3))
     {
-        printf("id name chessengine\n");
+        printf("id name XenonChess\n");
         printf("uciok\n");
         fflush(stdout);
     }
@@ -1091,6 +1091,18 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
     struct negamax_info *info = data;
     struct chess_ctx local = *ctx;
+
+    ++pondered;
+
+    execute_move(&local, move);
+    int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
+    if(v > info->best || (v == info->best && rand() % 8 == 0))
+    {
+        info->best = v;
+        info->move = move;
+    }
+    info->a = MAX(info->a, v);
+
     if(info->depth == DEPTH)
     {
 #if defined(UCI) || DEPTH > 3
@@ -1099,6 +1111,9 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
         printf("info currmovenumber %d\n", ++moveno);
         fflush(stdout);
 #endif
+        //printf("current best: %d, ", info->best);
+        //print_move(ctx, info->move);
+        //printf("movescore: %d\n", v);
     }
 #if DEPTH > 5
     else if(info->depth == DEPTH - 1)
@@ -1108,15 +1123,7 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
         fflush(stdout);
     }
 #endif
-    ++pondered;
-    execute_move(&local, move);
-    int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
-    if(v > info->best || (v == info->best && rand() % 8 == 0))
-    {
-        info->best = v;
-        info->move = move;
-    }
-    info->a = MAX(info->a, v);
+
     if(info->a >= info->b)
         return false;
     return true;
@@ -1176,7 +1183,7 @@ void print_status(const struct chess_ctx *ctx)
 
 int main()
 {
-    printf("Chessengine\n");
+    printf("XenonChess\n");
     srand(time(0));
 #ifndef UCI
     struct chess_ctx ctx = new_game();
