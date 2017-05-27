@@ -46,7 +46,7 @@ struct chess_ctx {
     struct piece_t board[8][8]; /* [rank (y)],[file (x)] */
     enum player to_move;
     bool king_moved[2];
-    bool rook_moved[2][2]; /* [player][0=first file,1=eighth file] */
+    bool rook_moved[2][2]; /* [player][0=first file (queenside),1=eighth file (kingside)] */
     bool en_passant[2][8];
 };
 
@@ -67,3 +67,5 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth,
                       int a, int b,
                       int color, struct move_t *best);
 bool can_castle(const struct chess_ctx *ctx, int color, int style);
+uint64_t perft(const struct chess_ctx *ctx, int depth);
+struct chess_ctx ctx_from_fen(const char *fen);

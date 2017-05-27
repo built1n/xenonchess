@@ -1,8 +1,8 @@
 #include "chess.h"
 
-#define DEPTH 1
+#define DEPTH 2
 
-#define AUTOMATCH
+//#define AUTOMATCH
 //#define UCI
 
 int count_material(const struct chess_ctx *ctx, int color)
@@ -610,6 +610,7 @@ const char *piece_name(enum piece type)
     return names[type];
 }
 
+#define UCI
 void print_move(const struct chess_ctx *ctx, struct move_t move)
 {
     switch(move.type)
@@ -691,6 +692,7 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
         assert(false);
     }
 }
+#undef UCI
 
 void execute_move(struct chess_ctx *ctx, struct move_t move)
 {
@@ -911,7 +913,8 @@ struct chess_ctx new_game(void)
     ret.rook_moved[1][0] = false;
     ret.rook_moved[1][1] = false;
 
-    return ret;
+    //return ret;
+    return ctx_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
 }
 
 struct move_t move_from_str(const struct chess_ctx *ctx, char **line, int color)
@@ -972,6 +975,138 @@ struct move_t move_from_str(const struct chess_ctx *ctx, char **line, int color)
     return ret;
 }
 
+struct chess_ctx ctx_from_fen(const char *fen)
+{
+    /* no validity checking */
+    char *save = NULL;
+    char *str = strdup(fen);
+    char *old = str;
+    struct chess_ctx ret, *ctx = &ret;
+    for(int i = 0; i < 8; ++i)
+    {
+        char *row = strtok_r(str, "/ ", &save);
+        str = NULL;
+        if(!row)
+        {
+            goto invalid;
+        }
+        int y = 7 - i, x = 0;
+        while(*row && x < 8)
+        {
+            char piece = *row++;
+            if(!piece)
+                break;
+            if(isdigit(piece))
+            {
+                int n = piece - '0';
+                if(x + n > 8)
+                {
+                    goto invalid;
+                }
+                while(n--)
+                {
+                    ctx->board[y][x].type = EMPTY;
+                    ctx->board[y][x].color = NONE;
+                    x++;
+                }
+            }
+            else if(isalpha(piece))
+            {
+                ctx->board[y][x].color = isupper(piece) ? WHITE : BLACK;
+                piece = tolower(piece);
+                switch(piece)
+                {
+                case 'p':
+                    ctx->board[y][x].type = PAWN;
+                    break;
+                case 'r':
+                    ctx->board[y][x].type = ROOK;
+                    break;
+                case 'n':
+                    ctx->board[y][x].type = KNIGHT;
+                    break;
+                case 'b':
+                    ctx->board[y][x].type = BISHOP;
+                    break;
+                case 'q':
+                    ctx->board[y][x].type = QUEEN;
+                    break;
+                case 'k':
+                    ctx->board[y][x].type = KING;
+                    break;
+                default:
+                    goto invalid;
+                }
+                ++x;
+            }
+        }
+    }
+    char *tok = strtok_r(NULL, " ", &save);
+    switch(tolower(tok[0]))
+    {
+    case 'w':
+        ctx->to_move = WHITE;
+        break;
+    case 'b':
+        ctx->to_move = BLACK;
+        break;
+    default:
+        printf("wrong to_move\n");
+        goto invalid;
+    }
+
+    /* castling */
+    tok = strtok_r(NULL, " ", &save);
+    while(*tok)
+    {
+        int idx = isupper(*tok) ? 0 : 1;
+        switch(*tok)
+        {
+        case 'K':
+        case 'k':
+            ctx->king_moved[idx] = false;
+            ctx->rook_moved[idx][1] = false;
+            break;
+        case 'Q':
+        case 'q':
+            ctx->king_moved[idx] = false;
+            ctx->rook_moved[idx][0] = false;
+            break;
+        case '-':
+            continue;
+        default:
+            printf("bad castling info\n");
+            goto invalid;
+        }
+        tok++;
+    }
+
+    memset(&ctx->en_passant, 0, sizeof(ctx->en_passant));
+    tok = strtok_r(NULL, " ", &save);
+    switch(tolower(tok[0]))
+    {
+    case '-':
+        break;
+    default:
+    {
+        unsigned int x = tolower(tok[0]) - 'a';
+        unsigned int y = tok[1] - '1';
+        if(x > 7 || y > 7)
+        {
+            printf("wrong en passant target (%u, %u, %s)\n", y, x, tok);
+            goto invalid;
+        }
+        ctx->en_passant[y == 2 ? 0 : 1][x] = true;
+        break;
+    }
+    }
+    free(old);
+    return ret;
+invalid:
+    free(old);
+    assert(false);
+}
+
 struct chess_ctx get_uci_ctx(void)
 {
     while(1)
@@ -980,6 +1115,14 @@ struct chess_ctx get_uci_ctx(void)
         size_t sz = 0;
         ssize_t len = getline(&ptr, &sz, stdin);
         char *line = ptr;
+
+        if(!line || !strlen(line))
+        {
+            free(line);
+            continue;
+        }
+
+        printf("received line: (%d, %d), \"%s\"\n", line, line[0], line);
 
         if(!strncasecmp(line, "uci", 3))
         {
@@ -995,6 +1138,7 @@ struct chess_ctx get_uci_ctx(void)
         }
         else if(!strncasecmp(line, "position startpos moves ", 24))
         {
+            printf("awaiting move string\n");
             struct chess_ctx ctx = new_game();
 
             line += 24;
@@ -1010,14 +1154,71 @@ struct chess_ctx get_uci_ctx(void)
             print_ctx(&ctx);
             return ctx;
         }
-        else if(!strncasecmp(line, "position startpos",  17))
+        else if(!strcasecmp(line, "position startpos\n"))
         {
+            printf("info starting move \"%s\"\n", line);
             free(ptr);
             return new_game();
         }
+        else if(!strncasecmp(line, "perft", 5))
+        {
+            int depth = 4;
+            if(sscanf(line, "perft %d\n", &depth) == 1)
+            {
+                struct chess_ctx ctx = new_game();
 
+                printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth));
+                fflush(stdout);
+            }
+        }
         free(ptr);
     }
+}
+
+struct perft_info {
+    uint64_t n;
+    int depth;
+};
+
+bool perft_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
+{
+    struct perft_info *info = data;
+
+    if(info->depth > 0)
+    {
+        struct chess_ctx local = *ctx;
+        execute_move(&local, move);
+        uint64_t child = perft(&local, info->depth - 1);
+        if(info->depth == 5)
+        {
+            printf("move has %"PRIu64" children: ", child);
+            print_move(ctx, move);
+        }
+        info->n += child;
+    }
+    else
+        info->n++;
+
+    return true;
+}
+
+uint64_t perft(const struct chess_ctx *ctx, int depth)
+{
+    struct perft_info info;
+    info.n = 0;
+    info.depth = depth;
+    for(int y = 0; y < 8; ++y)
+    {
+        for(int x = 0; x < 8; ++x)
+        {
+            if(ctx->board[y][x].color == ctx->to_move)
+            {
+                /* recurse */
+                for_each_move(ctx, y, x, perft_cb, &info, true, true);
+            }
+        }
+    }
+    return info.n;
 }
 
 struct move_t get_move(const struct chess_ctx *ctx, enum player color)
@@ -1064,6 +1265,17 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
         goto done;
     }
 
+    if(!strncasecmp(line, "perft", 5))
+    {
+        int depth = 4;
+        if(sscanf(line, "perft %d\n", &depth) == 1)
+        {
+            struct chess_ctx ctx = new_game();
+            printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth));
+            fflush(stdout);
+        }
+    }
+
     if(len < 5)
     {
         goto done;
@@ -1077,15 +1289,15 @@ done:
     return ret;
 }
 
+uint64_t pondered;
+int moveno;
+
 struct negamax_info {
     int best;
     int depth;
     int a, b;
     struct move_t move;
 };
-
-uint64_t pondered;
-int moveno;
 
 bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 {
@@ -1216,6 +1428,7 @@ int main()
         print_status(&ctx);
 #else
         struct chess_ctx ctx = get_uci_ctx();
+
 #endif
 #endif
 
