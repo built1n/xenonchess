@@ -3,7 +3,7 @@
 #define DEPTH 2
 
 //#define AUTOMATCH
-//#define UCI
+#define UCI
 
 int count_material(const struct chess_ctx *ctx, int color)
 {
@@ -26,9 +26,9 @@ int count_material(const struct chess_ctx *ctx, int color)
             /* pawn near promotion */
             if(ctx->board[y][x].type == PAWN)
             {
-                if((y >= 4 && ctx->board[y][x].color == WHITE) ||
-                   (y <= 3 && ctx->board[y][x].color == BLACK))
-                    total += 5;
+                if((y >= 5 && ctx->board[y][x].color == WHITE) ||
+                   (y <= 2 && ctx->board[y][x].color == BLACK))
+                    total += 4;
 
                 /* pawns are more valuable the further they have advanced */
                 total += ctx->board[y][x].color == WHITE ? y : 7 - y;
@@ -94,8 +94,8 @@ int eval_position(const struct chess_ctx *ctx, int color)
 
     score += count_material(ctx, color) * 4;
     score -= count_material(ctx, inv_player(color)) * 2;
-    score += count_space(ctx, color) / 10;
-    score -= count_space(ctx, inv_player(color)) / 10;
+    score += count_space(ctx, color);
+    score -= count_space(ctx, inv_player(color));
 
     if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
         score += 25;
@@ -610,7 +610,6 @@ const char *piece_name(enum piece type)
     return names[type];
 }
 
-#define UCI
 void print_move(const struct chess_ctx *ctx, struct move_t move)
 {
     switch(move.type)
@@ -692,7 +691,6 @@ void print_move(const struct chess_ctx *ctx, struct move_t move)
         assert(false);
     }
 }
-#undef UCI
 
 void execute_move(struct chess_ctx *ctx, struct move_t move)
 {
@@ -1159,6 +1157,11 @@ struct chess_ctx get_uci_ctx(void)
             printf("info starting move \"%s\"\n", line);
             free(ptr);
             return new_game();
+        }
+        else if(!strncasecmp(line, "position fen ", 13))
+        {
+            struct chess_ctx ctx = ctx_from_fen(line + 13);
+            return ctx;
         }
         else if(!strncasecmp(line, "perft", 5))
         {
