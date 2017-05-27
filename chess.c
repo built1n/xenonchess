@@ -1,6 +1,6 @@
 #include "chess.h"
 
-#define DEPTH 2
+#define DEPTH 1
 
 #define AUTOMATCH
 //#define UCI
@@ -26,9 +26,9 @@ int count_material(const struct chess_ctx *ctx, int color)
             /* pawn near promotion */
             if(ctx->board[y][x].type == PAWN)
             {
-                if((y >= 5 && ctx->board[y][x].color == WHITE) ||
-                   (y <= 2 && ctx->board[y][x].color == BLACK))
-                    total += 4;
+                if((y >= 4 && ctx->board[y][x].color == WHITE) ||
+                   (y <= 3 && ctx->board[y][x].color == BLACK))
+                    total += 5;
 
                 /* pawns are more valuable the further they have advanced */
                 total += ctx->board[y][x].color == WHITE ? y : 7 - y;
@@ -1094,8 +1094,12 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
 
     ++pondered;
 
+    int king_penalty = 0;
+    if(move.type == NORMAL && ctx->board[move.data.normal.from.x][move.data.normal.from.y].type == KING)
+        king_penalty = 100;
+
     execute_move(&local, move);
-    int v = -best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL);
+    int v = -(best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL) + king_penalty);
     if(v > info->best || (v == info->best && rand() % 8 == 0))
     {
         info->best = v;
