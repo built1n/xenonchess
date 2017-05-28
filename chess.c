@@ -546,12 +546,12 @@ void for_each_move(const struct chess_ctx *ctx,
             int opp = piece->color == WHITE ? 1 : 0;
             if(valid_coords(y + dy, x + 1) && ctx->en_passant[opp][x + 1])
             {
-                if(!gen_and_call(ctx, y + dy, x, dy, 1, cb, data, enforce_check))
+                if(!gen_and_call(ctx, y, x, dy, 1, cb, data, enforce_check))
                     return;
             }
             if(valid_coords(y + dy, x - 1) && ctx->en_passant[opp][x - 1])
             {
-                if(!gen_and_call(ctx, y + dy, x, dy, -1, cb, data, enforce_check))
+                if(!gen_and_call(ctx, y, x, dy, -1, cb, data, enforce_check))
                     return;
             }
         }
