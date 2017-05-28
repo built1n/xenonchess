@@ -1,6 +1,6 @@
 #include "chess.h"
 
-#define DEPTH 1
+#define DEPTH 2
 #define MAX_DEPTH DEPTH + 2
 
 //#define AUTOMATCH
@@ -14,12 +14,12 @@ int count_material(const struct chess_ctx *ctx, int color)
 {
     int total = 0;
     static const int values[] = { 0,
-                                  1, /* pawn */
-                                  8, /* rook */
-                                  3, /* knight */
-                                  3, /* bishop */
-                                  20, /* queen */
-                                  5  /* king */
+                                  100, /* pawn */
+                                  500, /* rook */
+                                  320, /* knight */
+                                  330, /* bishop */
+                                  900, /* queen */
+                                  20000  /* king */
     };
     for(int y = 0; y < 8; ++y)
     {
@@ -27,7 +27,7 @@ int count_material(const struct chess_ctx *ctx, int color)
         {
             if(ctx->board[y][x].color == color)
             {
-                total += values[ctx->board[y][x].type] * 100;
+                total += values[ctx->board[y][x].type];
 #ifdef TEST_FEATURE
                 total += location_bonuses[ctx->board[y][x].type - 1][color == WHITE ? y : 7 - y][x];
 #endif
@@ -106,8 +106,10 @@ int eval_position(const struct chess_ctx *ctx, int color)
 {
     int score = 0;
 
-    score += count_material(ctx, color) * 4;
-    score -= count_material(ctx, inv_player(color)) * 2;
+//    score += count_material(ctx, color) * 4;
+//    score -= count_material(ctx, inv_player(color)) * 2;
+    score += count_material(ctx, color);
+    score -= count_material(ctx, inv_player(color));
     score += count_space(ctx, color);
     score -= count_space(ctx, inv_player(color));
 
