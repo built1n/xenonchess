@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #define COORD_END 0xf00d
 #define ARRAYLEN(x) (sizeof(x)/sizeof((x)[0]))
@@ -42,6 +43,8 @@ struct move_t {
     } data;
 };
 
+#define UNKNOWN -1
+
 struct chess_ctx {
     struct piece_t board[8][8]; /* [rank (y)],[file (x)] */
     enum player to_move;
@@ -65,7 +68,8 @@ bool king_in_check(const struct chess_ctx *ctx, int color, struct coordinates *k
 void print_ctx(const struct chess_ctx *ctx);
 int best_move_negamax(const struct chess_ctx *ctx, int depth,
                       int a, int b,
-                      int color, struct move_t *best);
+                      int color, struct move_t *best, int full);
 bool can_castle(const struct chess_ctx *ctx, int color, int style);
 uint64_t perft(const struct chess_ctx *ctx, int depth);
-struct chess_ctx ctx_from_fen(const char *fen);
+struct chess_ctx ctx_from_fen(const char *fen, int *len);
+extern int location_bonuses[6][8][8];

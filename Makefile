@@ -13,15 +13,22 @@ LIBDIR = $(PREFIX)/lib
 INCLUDES =
 LIBS =
 
+CUTECHESS=cutechess-cli
+
 HEADERS := $(wildcard *.h)
 
-CFLAGS = -O3 -g -Wall -Wextra -std=gnu99 $(INCLUDES)
+CFLAGS = -Ofast -g -Wall -Wextra -std=gnu99 $(INCLUDES)
 
-all: Makefile $(PROGRAM_NAME)
+all: Makefile $(PROGRAM_NAME) $(PROGRAM_NAME)-old
 
-$(PROGRAM_NAME): Makefile $(OBJ) $(HEADERS)
-	@echo "LD $@"
-	@$(CC) $(OBJ) -o $@ $(CFLAGS) $(LIBS)
+$(PROGRAM_NAME): Makefile $(HEADERS)
+	$(CC) $(SRC) -o $@ $(CFLAGS) $(LIBS) -DTEST_FEATURE
+
+$(PROGRAM_NAME)-old: Makefile $(HEADERS)
+	$(CC) $(SRC) -o $@ $(CFLAGS) $(LIBS)
+
+test: all
+	$(CUTECHESS) -engine name=xenon-new proto=uci dir=`pwd` cmd=./xenonchess -engine proto=uci dir=`pwd` cmd=./xenonchess-old name=xenon-old -each tc=1+.01 -rounds 100
 
 %.o: %.c Makefile $(HEADERS)
 	@echo "CC $<"

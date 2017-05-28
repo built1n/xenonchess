@@ -1,9 +1,14 @@
 #include "chess.h"
 
-#define DEPTH 2
+#define DEPTH 1
+#define MAX_DEPTH DEPTH + 2
 
 //#define AUTOMATCH
 #define UCI
+
+#if defined(AUTOMATCH) && defined(UCI)
+#error stupid
+#endif
 
 int count_material(const struct chess_ctx *ctx, int color)
 {
@@ -21,20 +26,27 @@ int count_material(const struct chess_ctx *ctx, int color)
         for(int x = 0; x < 8; ++x)
         {
             if(ctx->board[y][x].color == color)
-                total += values[ctx->board[y][x].type];
-
-            /* pawn near promotion */
-            if(ctx->board[y][x].type == PAWN)
             {
-                if((y >= 5 && ctx->board[y][x].color == WHITE) ||
-                   (y <= 2 && ctx->board[y][x].color == BLACK))
-                    total += 4;
+                total += values[ctx->board[y][x].type] * 100;
+#ifdef TEST_FEATURE
+                total += location_bonuses[ctx->board[y][x].type - 1][color == WHITE ? y : 7 - y][x];
+#endif
 
-                /* pawns are more valuable the further they have advanced */
-                total += ctx->board[y][x].color == WHITE ? y : 7 - y;
+#if 0
+                /* pawn near promotion */
+                if(ctx->board[y][x].type == PAWN)
+                {
+                    if((y >= 5 && ctx->board[y][x].color == WHITE) ||
+                       (y <= 2 && ctx->board[y][x].color == BLACK))
+                        total += 4;
+
+                    /* pawns are more valuable the further they have advanced */
+                    total += ctx->board[y][x].color == WHITE ? y : 7 - y;
+                }
+                if(ctx->board[y][x].type == KING && (y == 2 || y == 6)) /* castled king */
+                    total += 20;
+#endif
             }
-            if(ctx->board[y][x].type == KING && (y == 2 || y == 6)) /* castled king */
-                total += 20;
         }
     }
     //printf("color %d has %d material\n", color, total);
@@ -50,8 +62,10 @@ bool count_space_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
         int x = move.data.normal.to.x, y = move.data.normal.to.y;
         if(ctx->board[y][x].color != NONE) /* threatens an enemy piece */
             (*count)++;
+#if 0
         if((x == 3 || x == 4) && (y == 3 || y == 4)) /* controls center */
             (*count)++;
+#endif
     }
     return true;
 }
@@ -97,18 +111,24 @@ int eval_position(const struct chess_ctx *ctx, int color)
     score += count_space(ctx, color);
     score -= count_space(ctx, inv_player(color));
 
+#if 0
     if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
         score += 25;
+#endif
 
     if(king_in_check(ctx, color, NULL))
     {
+#ifdef CHECK_PENALTIES
         score -= 9;
+#endif
         if(king_in_checkmate(ctx, color))
             score -= 2000;
     }
     else if(king_in_check(ctx, inv_player(color), NULL))
     {
+#ifdef CHECK_PENALTIES
         score += 5;
+#endif
         if(king_in_checkmate(ctx, inv_player(color)))
             score += 2000;
     }
@@ -117,6 +137,78 @@ int eval_position(const struct chess_ctx *ctx, int color)
 }
 
 #define valid_coords(y, x) ((0 <= y && y <= 7) && (0 <= x && x <= 7))
+
+int location_bonuses[6][8][8] =  {
+    {
+        // Pawns - early/mid
+        //  A   B   C   D   E   F   G   H
+        { 0,  0,  0,  0,  0,  0,  0,  0 }, // 1
+        { -1, -7,-11,-35,-13,  5,  3, -5 }, // 2
+        { 1,  1, -6,-19, -6, -7, -4, 10 }, // 3
+        { 1, 14,  8,  4,  5,  4, 10,  7 }, // 4
+        { 9, 30, 23, 31, 31, 23, 17, 11 }, // 5
+        { 21, 54, 72, 56, 77, 95, 71, 11 }, // 6
+        { 118,121,173,168,107, 82,-16, 22 }, // 7
+        { 0,  0,  0,  0,  0,  0,  0,  0 } // 8
+    },
+    {
+        // Rooks - early/mid
+        //  A   B   C   D   E   F   G   H
+        { -2, -1,  3,  1,  2,  1,  4, -8 }, // 1
+        { -26, -6,  2, -2,  2,-10, -1,-29 }, // 2
+        { -16,  0,  3, -3,  8, -1, 12,  3 }, // 3
+        { -9, -5,  8, 14, 18,-17, 13,-13 }, // 4
+        { 19, 33, 46, 57, 53, 39, 53, 16 }, // 5
+        { 24, 83, 54, 75,134,144, 85, 75 }, // 6
+        { 46, 33, 64, 62, 91, 89, 70,104 }, // 7
+        { 84,  0,  0, 37,124,  0,  0,153 }  // 8
+    },
+    {
+        // Knights - early/mid
+        //  A   B   C   D   E   F   G   H
+        { -99,-30,-66,-64,-29,-19,-61,-81 }, // 1
+        { -56,-31,-28, -1, -7,-20,-42,-11 }, // 2
+        { -38,-16,  0, 14,  8,  3,  3,-42 }, // 3
+        { -14,  0,  2,  3, 19, 12, 33, -7 }, // 4
+        { -14, -4, 25, 33, 10, 33, 14, 43 }, // 5
+        { -22, 18, 60, 64,124,143, 55,  6 }, // 6
+        { -34, 24, 54, 74, 60,122,  2, 29 }, // 7
+        { -60,  0,  0,  0,  0,  0,  0,  0 } // 8
+    },{
+        // Bishops - early/mid
+        //  A   B   C   D   E   F   G   H
+        { -7, 12, -8,-37,-31, -8,-45,-67 }, // 1
+        { 15,  5, 13,-10,  1,  2,  0, 15 }, // 2
+        { 5, 12, 14, 13, 10, -1,  3,  4 }, // 3
+        { 1,  5, 23, 32, 21,  8, 17,  4 }, // 4
+        { -1, 16, 29, 27, 37, 27, 17,  4 }, // 5
+        { 7, 27, 20, 56, 91,108, 53, 44 }, // 6
+        { -24,-23, 30, 58, 65, 61, 69, 11 }, // 7
+        { 0,  0,  0,  0,  0,  0,  0,  0 } // 8
+    },{
+        // Queens - early/mid
+        //  A   B   C   D   E   F   G   H
+        { 1,-10,-11,  3,-15,-51,-83,-13 }, // 1
+        { -7,  3,  2,  5, -1,-10, -7, -2 }, // 2
+        { -11,  0, 12,  2,  8, 11,  7, -6 }, // 3
+        { -9,  5,  7,  9, 18, 17, 26,  4 }, // 4
+        { -6,  0, 15, 25, 32,  9, 26, 12 }, // 5
+        { -16, 10, 13, 25, 37, 30, 15, 26 }, // 6
+        { 1, 11, 35,  0, 16, 55, 39, 57 }, // 7
+        { -13,  6,-42,  0, 29,  0,  0,102 }  // 8
+    },{
+        // Kings - early/mid
+        //  A   B   C   D   E   F   G   H
+        { 0,  0,  0, -9,  0, -9, 25,  0 }, // 1
+        { -9, -9, -9, -9, -9, -9, -9, -9 }, // 2
+        { -9, -9, -9, -9, -9, -9, -9, -9 }, // 3
+        { -9, -9, -9, -9, -9, -9, -9, -9 }, // 4
+        { -9, -9, -9, -9, -9, -9, -9, -9 }, // 5
+        { -9, -9, -9, -9, -9, -9, -9, -9 }, // 6
+        { -9, -9, -9, -9, -9, -9, -9, -9 }, // 7
+        { -9, -9, -9, -9, -9, -9, -9, -9 } // 8
+    }
+};
 
 const struct coordinates king_moves[] = {
     { 0, 1 },
@@ -912,10 +1004,10 @@ struct chess_ctx new_game(void)
     ret.rook_moved[1][1] = false;
 
     //return ret;
-    return ctx_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    return ctx_from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", NULL);
 }
 
-struct move_t move_from_str(const struct chess_ctx *ctx, char **line, int color)
+struct move_t move_from_str(const struct chess_ctx *ctx, const char **line, int color)
 {
     struct move_t ret;
 
@@ -973,7 +1065,7 @@ struct move_t move_from_str(const struct chess_ctx *ctx, char **line, int color)
     return ret;
 }
 
-struct chess_ctx ctx_from_fen(const char *fen)
+struct chess_ctx ctx_from_fen(const char *fen, int *len)
 {
     /* no validity checking */
     char *save = NULL;
@@ -1098,6 +1190,21 @@ struct chess_ctx ctx_from_fen(const char *fen)
         break;
     }
     }
+
+    /* halfmove clock and fullmove number (both ignored) */
+    tok = strtok_r(NULL, " ", &save);
+    tok = strtok_r(NULL, " ", &save);
+
+    /* get address of rest of string */
+    tok = strtok_r(NULL, "", &save);
+    if(len)
+    {
+        if(tok)
+            *len = tok - old;
+        else
+            *len = strlen(fen);
+    }
+
     free(old);
     return ret;
 invalid:
@@ -1105,8 +1212,20 @@ invalid:
     assert(false);
 }
 
+void parse_moves(struct chess_ctx *ctx, const char *line, int len)
+{
+    while(len > 0)
+    {
+        const char *before = line;
+        struct move_t move = move_from_str(ctx, &line, ctx->to_move);
+        execute_move(ctx, move);
+        len -= line - before;
+    }
+}
+
 struct chess_ctx get_uci_ctx(void)
 {
+    struct chess_ctx ctx = new_game();
     while(1)
     {
         char *ptr = NULL;
@@ -1120,7 +1239,7 @@ struct chess_ctx get_uci_ctx(void)
             continue;
         }
 
-        printf("received line: (%d, %d), \"%s\"\n", line, line[0], line);
+        //printf("received line: (%d, %d), \"%s\"\n", line, line[0], line);
 
         if(!strncasecmp(line, "uci", 3))
         {
@@ -1137,40 +1256,45 @@ struct chess_ctx get_uci_ctx(void)
         else if(!strncasecmp(line, "position startpos moves ", 24))
         {
             printf("awaiting move string\n");
-            struct chess_ctx ctx = new_game();
+            ctx = new_game();
 
             line += 24;
             len -= 24;
-            while(len > 0)
-            {
-                char *before = line;
-                struct move_t move = move_from_str(&ctx, &line, ctx.to_move);
-                execute_move(&ctx, move);
-                len -= line - before;
-            }
-            free(ptr);
+            parse_moves(&ctx, line, len);
             print_ctx(&ctx);
+        }
+        else if(!strncasecmp(line, "go", 2))
+        {
+            free(ptr);
             return ctx;
         }
         else if(!strcasecmp(line, "position startpos\n"))
         {
-            printf("info starting move \"%s\"\n", line);
-            free(ptr);
-            return new_game();
+            //printf("info starting move \"%s\"\n", line);
+            ctx = new_game();
         }
         else if(!strncasecmp(line, "position fen ", 13))
         {
-            struct chess_ctx ctx = ctx_from_fen(line + 13);
-            return ctx;
+            int fenlen;
+            ctx = ctx_from_fen(line + 13, &fenlen);
+
+            line += 13 + fenlen;
+            len -= 13 + fenlen;
+            printf("fenlen is %d\n", fenlen);
+            if(len > 0)
+            {
+                printf("line is \"%s\"\n", line);
+
+                parse_moves(&ctx, line, len);
+            }
+            print_ctx(&ctx);
         }
         else if(!strncasecmp(line, "perft", 5))
         {
             int depth = 4;
             if(sscanf(line, "perft %d\n", &depth) == 1)
             {
-                struct chess_ctx ctx = new_game();
-
-                printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth));
+                printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth - 1));
                 fflush(stdout);
             }
         }
@@ -1264,7 +1388,7 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
 
     if(!strncasecmp(line, "help", 4))
     {
-        best_move_negamax(ctx, DEPTH, -999999, 999999, color, &ret);
+        best_move_negamax(ctx, DEPTH, -999999, 999999, color, &ret, DEPTH);
         goto done;
     }
 
@@ -1284,7 +1408,7 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
         goto done;
     }
 
-    ret = move_from_str(ctx, &line, color);
+    ret = move_from_str(ctx, (const char**)&line, color);
 
 done:
     free(ptr);
@@ -1299,6 +1423,7 @@ struct negamax_info {
     int best;
     int depth;
     int a, b;
+    int full_depth;
     struct move_t move;
 };
 
@@ -1313,9 +1438,20 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     if(move.type == NORMAL && ctx->board[move.data.normal.from.x][move.data.normal.from.y].type == KING)
         king_penalty = 100;
 
+    if(king_in_check(ctx, ctx->to_move, NULL))
+    {
+        if(info->full_depth < MAX_DEPTH)
+        {
+#ifdef CHECK_EXTENSIONS
+            info->depth++;
+            info->full_depth++;
+#endif
+        }
+    }
+
     execute_move(&local, move);
-    int v = -(best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL) + king_penalty);
-    if(v > info->best || (v == info->best && rand() % 8 == 0))
+    int v = -(best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL, info->full_depth) + king_penalty);
+    if(v > info->best || (v == info->best && rand() % 8 == 2))
     {
         info->best = v;
         info->move = move;
@@ -1348,12 +1484,13 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     return true;
 }
 
-int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best)
+int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best, int full_depth)
 {
     struct negamax_info info;
     info.best = -99999999;
     info.move.type = NOMOVE;
     info.depth = depth;
+    info.full_depth = full_depth;
     info.a = a;
     info.b = b;
     if(depth > 0)
@@ -1403,7 +1540,10 @@ void print_status(const struct chess_ctx *ctx)
 int main()
 {
     printf("XenonChess\n");
-    srand(time(0));
+    unsigned int seed;
+    int fd = open("/dev/urandom", O_RDONLY);
+    read(fd, &seed, sizeof seed);
+    srand(seed);
 #ifndef UCI
     struct chess_ctx ctx = new_game();
     print_ctx(&ctx);
@@ -1431,7 +1571,6 @@ int main()
         print_status(&ctx);
 #else
         struct chess_ctx ctx = get_uci_ctx();
-
 #endif
 #endif
 
@@ -1440,7 +1579,7 @@ int main()
         pondered = 0;
         moveno = 0;
         clock_t start = clock();
-        best_move_negamax(&ctx, DEPTH, -999999, 999999, ctx.to_move, &best);
+        best_move_negamax(&ctx, DEPTH, -999999, 999999, ctx.to_move, &best, DEPTH);
         clock_t end = clock();
         float time = (float)(end - start) / CLOCKS_PER_SEC;
         printf("bestmove ");
