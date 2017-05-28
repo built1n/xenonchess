@@ -5,6 +5,7 @@
 
 //#define AUTOMATCH
 #define UCI
+//#define CHECK_EXTENSIONS
 
 #if defined(AUTOMATCH) && defined(UCI)
 #error stupid
@@ -28,9 +29,7 @@ int count_material(const struct chess_ctx *ctx, int color)
             if(ctx->board[y][x].color == color)
             {
                 total += values[ctx->board[y][x].type];
-#ifdef TEST_FEATURE
                 total += location_bonuses[ctx->board[y][x].type - 1][color == WHITE ? y : 7 - y][x];
-#endif
 
 #if 0
                 /* pawn near promotion */
@@ -110,8 +109,10 @@ int eval_position(const struct chess_ctx *ctx, int color)
 //    score -= count_material(ctx, inv_player(color)) * 2;
     score += count_material(ctx, color);
     score -= count_material(ctx, inv_player(color));
+#ifdef TEST_FEATURE
     score += count_space(ctx, color);
     score -= count_space(ctx, inv_player(color));
+#endif
 
 #if 0
     if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
@@ -1165,7 +1166,7 @@ struct chess_ctx ctx_from_fen(const char *fen, int *len)
             ctx->rook_moved[idx][0] = false;
             break;
         case '-':
-            continue;
+            break;
         default:
             printf("bad castling info\n");
             goto invalid;
@@ -1216,7 +1217,7 @@ invalid:
 
 void parse_moves(struct chess_ctx *ctx, const char *line, int len)
 {
-    while(len > 0)
+    while(len > 3)
     {
         const char *before = line;
         struct move_t move = move_from_str(ctx, &line, ctx->to_move);
@@ -1299,6 +1300,11 @@ struct chess_ctx get_uci_ctx(void)
                 printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth - 1));
                 fflush(stdout);
             }
+        }
+        else if(!strncasecmp(line, "eval", 4))
+        {
+            printf("info value WHITE: %d, BLACK: %d\n", eval_position(&ctx, WHITE), eval_position(&ctx, BLACK));
+            fflush(stdout);
         }
         free(ptr);
     }
