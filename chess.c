@@ -1,13 +1,13 @@
 #include "chess.h"
 
-#define DEPTH 1
-#define MAX_DEPTH DEPTH + 2
+#define DEPTH 2
+#define MAX_DEPTH DEPTH + 1
 
 //#define AUTOMATCH
 #define UCI
-//#ifdef TEST_FEATURE
-//#define CHECK_EXTENSIONS
-//#endif
+#ifdef TEST_FEATURE
+#define CHECK_EXTENSIONS
+#endif
 
 #if defined(AUTOMATCH) && defined(UCI)
 #error stupid
@@ -18,7 +18,7 @@ static const int piece_values[] = { 0,
                                     500, /* rook */
                                     320, /* knight */
                                     330, /* bishop */
-                                    900, /* queen */
+                                    10000,
                                     0  /* king, value doesn't matter */
 };
 
@@ -126,7 +126,7 @@ int eval_position(const struct chess_ctx *ctx, int color)
         score -= 9;
 #endif
         if(king_in_checkmate(ctx, color))
-            score -= 2000;
+            score -= 200000;
     }
     else if(king_in_check(ctx, inv_player(color), NULL))
     {
@@ -134,7 +134,7 @@ int eval_position(const struct chess_ctx *ctx, int color)
         score += 5;
 #endif
         if(king_in_checkmate(ctx, inv_player(color)))
-            score += 2000;
+            score += 200000;
     }
 
     return score;
@@ -142,13 +142,9 @@ int eval_position(const struct chess_ctx *ctx, int color)
 
 #define valid_coords(y, x) ((0 <= y && y <= 7) && (0 <= x && x <= 7))
 
-#ifdef TEST_FEATURE
 int location_bonuses[6][8][8];
 
 static const int location_bonuses_early[6][8][8] =  {
-#else
-int location_bonuses[6][8][8] = {
-#endif
     {
         // Pawns - early/mid
         //  A   B   C   D   E   F   G   H
@@ -1344,6 +1340,7 @@ struct chess_ctx get_uci_ctx(void)
         }
         else if(!strncasecmp(line, "go", 2))
         {
+
             free(ptr);
             return ctx;
         }
@@ -1568,6 +1565,13 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     return true;
 }
 
+int ms_time(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return t.tv_sec * 1000 + t.tv_nsec / 1e6;
+}
+
 int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best, int full_depth)
 {
     struct negamax_info info;
@@ -1615,7 +1619,6 @@ float calculate_phase(const struct chess_ctx *ctx)
 
 #define INTERPOLATE(a, b, x) ((a) + ((b) - (a)) * (x))
 
-#ifdef TEST_FEATURE
 void init_pst(const struct chess_ctx *ctx)
 {
     memset(location_bonuses, 0, sizeof(location_bonuses));
@@ -1628,7 +1631,6 @@ void init_pst(const struct chess_ctx *ctx)
                                                         location_bonuses_endgame[i][y][x],
                                                         phase);
 }
-#endif
 
 void print_status(const struct chess_ctx *ctx)
 {
@@ -1695,9 +1697,7 @@ int main()
         moveno = 0;
         clock_t start = clock();
 
-#ifdef TEST_FEATURE
         init_pst(&ctx);
-#endif
 
         best_move_negamax(&ctx, DEPTH, -999999, 999999, ctx.to_move, &best, DEPTH);
         clock_t end = clock();
