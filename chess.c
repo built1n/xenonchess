@@ -1,10 +1,10 @@
 #include "chess.h"
 
-#define DEPTH 2
-#define MAX_DEPTH DEPTH + 1
+#define DEPTH 4
+#define MAX_DEPTH DEPTH + 2
 
-//#define AUTOMATCH
-#define UCI
+#define AUTOMATCH
+//#define UCI
 #ifdef TEST_FEATURE
 #define CHECK_EXTENSIONS
 #endif
@@ -1366,14 +1366,13 @@ struct chess_ctx get_uci_ctx(void)
             print_ctx(&ctx);
         }
         else if(!strncasecmp(line, "perft", 5))
-        {
-            int depth = 4;
-            if(sscanf(line, "perft %d\n", &depth) == 1)
-            {
-                printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth - 1));
-                fflush(stdout);
-            }
-        }
+	  {
+	    int depth;
+	    if(sscanf(line, "perft %d\n", &depth) != 1)
+	      depth = 4;
+	    printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth - 1));
+	    fflush(stdout);
+	  }
         else if(!strncasecmp(line, "eval", 4))
         {
             printf("info value WHITE: %d, BLACK: %d\n", eval_position(&ctx, WHITE), eval_position(&ctx, BLACK));
@@ -1432,6 +1431,7 @@ uint64_t perft(const struct chess_ctx *ctx, int depth)
 struct move_t get_move(const struct chess_ctx *ctx, enum player color)
 {
     struct move_t ret;
+ again:
     ret.type = NOMOVE;
 
     char *ptr = NULL;
@@ -1453,35 +1453,38 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
         ret.data.castle_style = KINGSIDE;
         goto done;
     }
-
-    if(!strncasecmp(line, "uci", 3))
+    else if(!strncasecmp(line, "uci", 3))
     {
         printf("id name XenonChess\n");
         printf("uciok\n");
         fflush(stdout);
+	goto again;
     }
-
-    if(!strncasecmp(line, "isready", 7))
+    else if(!strncasecmp(line, "isready", 7))
     {
         printf("readyok\n");
         fflush(stdout);
+	goto again;
     }
-
-    if(!strncasecmp(line, "help", 4))
+    else if(!strncasecmp(line, "help", 4))
     {
         best_move_negamax(ctx, DEPTH, -999999, 999999, color, &ret, DEPTH);
         goto done;
     }
-
-    if(!strncasecmp(line, "perft", 5))
+    else if(!strncasecmp(line, "perft", 5))
     {
-        int depth = 4;
-        if(sscanf(line, "perft %d\n", &depth) == 1)
-        {
-            struct chess_ctx ctx = new_game();
-            printf("info depth %d nodes %lu\n", depth, perft(&ctx, depth));
-            fflush(stdout);
-        }
+	int depth;
+	if(sscanf(line, "perft %d\n", &depth) != 1)
+	    depth = 4;
+	printf("info depth %d nodes %lu\n", depth, perft(ctx, depth - 1));
+	fflush(stdout);
+	goto again;
+    }
+    else if(!strncasecmp(line, "eval", 4))
+    {
+	printf("info value WHITE: %d, BLACK: %d\n", eval_position(ctx, WHITE), eval_position(ctx, BLACK));
+	fflush(stdout);
+	goto again;
     }
 
     if(len < 5)
