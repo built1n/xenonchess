@@ -1,10 +1,10 @@
 #include "chess.h"
 
-#define DEPTH 4
-#define MAX_DEPTH DEPTH + 1
+#define DEFAULT_DEPTH 3
+#define MAX_DEPTH 5
 
 //#define AUTOMATCH
-//#define UCI
+#define UCI
 #ifdef TEST_FEATURE
 #define CHECK_EXTENSIONS
 #endif
@@ -1298,7 +1298,7 @@ void parse_moves(struct chess_ctx *ctx, const char *line, int len)
     }
 }
 
-struct chess_ctx get_uci_ctx(void)
+struct chess_ctx get_uci_ctx(int *wtime, int *btime, int *movetime)
 {
     struct chess_ctx ctx = new_game();
     while(1)
@@ -1340,6 +1340,33 @@ struct chess_ctx get_uci_ctx(void)
         }
         else if(!strncasecmp(line, "go", 2))
         {
+            char *save;
+            char *tok;
+            do {
+                tok = strtok_r(line, " ", &save);
+                line = NULL;
+                if(!tok)
+                    break;
+                if(!strcmp(tok, "wtime"))
+                {
+                    tok = strtok_r(line, " ", &save);
+                    if(tok && wtime)
+                        *wtime = atoi(tok);
+                }
+                else if(!strcmp(tok, "btime"))
+                {
+                    tok = strtok_r(line, " ", &save);
+                    if(tok && btime)
+                        *btime = atoi(tok);
+                }
+                else if(!strcmp(tok, "movetime"))
+                {
+                    tok = strtok_r(line, " ", &save);
+                    if(tok && movetime)
+                        *movetime = atoi(tok);
+                }
+            } while(tok);
+            //printf("wtime = %d, btime = %d\n", *wtime, *btime);
 
             free(ptr);
             return ctx;
@@ -1509,6 +1536,7 @@ struct negamax_info {
     int depth;
     int a, b;
     int full_depth;
+    int stop_time;
     struct move_t move;
 };
 
@@ -1535,7 +1563,7 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     }
 
     execute_move(&local, move);
-    int v = -(best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL, info->full_depth) + king_penalty);
+    int v = -(best_move_negamax(&local, info->depth - 1, -info->b, -info->a, local.to_move, NULL, info->full_depth, info->stop_time) + king_penalty);
     if(v > info->best || (v == info->best && rand() % 8 == 2))
     {
         info->best = v;
@@ -1543,9 +1571,9 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     }
     info->a = MAX(info->a, v);
 
-    if(info->depth == DEPTH && info->depth == info->full_depth)
+    if(info->depth == info->full_depth)
     {
-#if defined(UCI) || DEPTH > 3
+#if defined(UCI) || DEFAULT_DEPTH > 3
         printf("info currmove ");
         print_move(ctx, move);
         printf("info currmovenumber %d\n", ++moveno);
@@ -1555,8 +1583,8 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
         //print_move(ctx, info->move);
         //printf("movescore: %d\n", v);
     }
-#if DEPTH > 5
-    else if(info->depth == DEPTH - 1)
+#if DEFAULT_DEPTH > 5
+    else if(info->depth == DEFAULT_DEPTH - 1)
     {
         printf("submove ");
         print_move(ctx, move);
@@ -1576,7 +1604,9 @@ int ms_time(void)
     return t.tv_sec * 1000 + t.tv_nsec / 1e6;
 }
 
-int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int color, struct move_t *best, int full_depth)
+int best_move_negamax(const struct chess_ctx *ctx, int depth,
+                      int a, int b, int color,
+                      struct move_t *best, int full_depth, int stop_time)
 {
     struct negamax_info info;
     info.best = -99999999;
@@ -1585,6 +1615,7 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int 
     info.full_depth = full_depth;
     info.a = a;
     info.b = b;
+    info.stop_time = stop_time;
 
     if(depth > 0)
     {
@@ -1592,6 +1623,14 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int 
         {
             for(int x = 0; x < 8; ++x)
             {
+                if(stop_time > 0 && ms_time() > stop_time)
+                {
+                    /* abort! */
+                    if(best)
+                        best->type = NOMOVE;
+                    printf("aborting depth %d search due to time\n", info.full_depth);
+                    return -99999999;
+                }
                 if(ctx->board[y][x].color == ctx->to_move)
                 {
                     /* recurse */
@@ -1606,6 +1645,41 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int 
         return eval_position(ctx, color);
 
     return info.best;
+}
+
+struct move_t best_move(const struct chess_ctx *ctx, int stop_time)
+{
+    struct move_t best;
+    best.type = NOMOVE;
+    if(stop_time < 0)
+    {
+        /* no time limit, default depth */
+        best_move_negamax(ctx, DEFAULT_DEPTH, -9999999, 9999999, ctx->to_move, &best, DEFAULT_DEPTH, stop_time);
+        return best;
+    }
+    for(int i = 1; i < MAX_DEPTH; ++i)
+    {
+        struct move_t old = best;
+        best_move_negamax(ctx, i, -9999999, 9999999, ctx->to_move, &best, i, old.type == NOMOVE ? -1 : stop_time);
+        if(ms_time() > stop_time)
+        {
+            if(old.type != NOMOVE)
+            {
+                printf("returning old result due to time\n");
+                return old;
+            }
+            else
+            {
+                printf("finishing search...\n");
+                /* finish the search, ignoring the time */
+                best_move_negamax(ctx, i, -9999999, 9999999, ctx->to_move, &best, i, -1);
+                return best;
+            }
+        }
+        printf("after depth %d search, best move: ", i);
+        print_move(ctx, best);
+    }
+    return best;
 }
 
 float calculate_phase(const struct chess_ctx *ctx)
@@ -1665,10 +1739,12 @@ int main()
     int fd = open("/dev/urandom", O_RDONLY);
     read(fd, &seed, sizeof seed);
     srand(seed);
+
 #ifndef UCI
     struct chess_ctx ctx = new_game();
     print_ctx(&ctx);
 #endif
+
     for(;;)
     {
 #ifndef AUTOMATCH
@@ -1691,9 +1767,16 @@ int main()
         print_ctx(&ctx);
         print_status(&ctx);
 #else
-        struct chess_ctx ctx = get_uci_ctx();
+        int wtime = -1, btime = -1, movetime = -1;
+        struct chess_ctx ctx = get_uci_ctx(&wtime, &btime, &movetime);
 #endif
 #endif
+        int stop_time;
+        int think_time = movetime > 0 ? movetime : (ctx.to_move == WHITE ? wtime : btime) / 40;
+        if(think_time <= 0)
+            stop_time = -1;
+        else
+            stop_time = ms_time() + think_time;
 
         printf("info Thinking...\n");
         struct move_t best;
@@ -1703,7 +1786,8 @@ int main()
 
         init_pst(&ctx);
 
-        best_move_negamax(&ctx, DEPTH, -999999, 999999, ctx.to_move, &best, DEPTH);
+        best = best_move(&ctx, stop_time);
+        //best_move_negamax(&ctx, DEFAULT_DEPTH, -9999999, 9999999, ctx.to_move, &best, DEFAULT_DEPTH, stop_time);
         clock_t end = clock();
         float time = (float)(end - start) / CLOCKS_PER_SEC;
         printf("bestmove ");

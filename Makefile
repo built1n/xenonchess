@@ -30,7 +30,7 @@ $(PROGRAM_NAME)-old: Makefile $(HEADERS) $(SRC)
 	$(CC) $(SRC) -o $@ $(CFLAGS) $(LIBS)
 
 test: all
-	$(CUTECHESS) -engine name=xenon-new proto=uci dir=`pwd` cmd=./xenonchess -engine proto=uci dir=`pwd` cmd=./xenonchess-old name=xenon-old -each tc=inf -rounds 200 -ratinginterval 1
+	$(CUTECHESS) -engine name=xenon-new proto=uci dir=`pwd` cmd=./xenonchess -engine proto=uci dir=`pwd` cmd=./xenonchess-old name=xenon-old -each tc=1+.01 -rounds 200 -ratinginterval 1
 
 test-tscp: $(PROGRAM_NAME)
 	$(CUTECHESS) -engine name=xenon-new proto=uci dir=`pwd` cmd=./xenonchess -engine proto=xboard dir=/ cmd=$(TSCP) name=tscp -each tc=1+.01 -rounds 1000

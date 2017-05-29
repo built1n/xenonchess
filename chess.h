@@ -68,7 +68,7 @@ bool king_in_check(const struct chess_ctx *ctx, int color, struct coordinates *k
 void print_ctx(const struct chess_ctx *ctx);
 int best_move_negamax(const struct chess_ctx *ctx, int depth,
                       int a, int b,
-                      int color, struct move_t *best, int full);
+                      int color, struct move_t *best, int full, int stop_time);
 bool can_castle(const struct chess_ctx *ctx, int color, int style);
 uint64_t perft(const struct chess_ctx *ctx, int depth);
 struct chess_ctx ctx_from_fen(const char *fen, int *len);
