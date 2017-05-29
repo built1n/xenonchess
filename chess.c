@@ -1,9 +1,9 @@
 #include "chess.h"
 
 #define DEPTH 4
-#define MAX_DEPTH DEPTH + 2
+#define MAX_DEPTH DEPTH + 1
 
-#define AUTOMATCH
+//#define AUTOMATCH
 //#define UCI
 #ifdef TEST_FEATURE
 #define CHECK_EXTENSIONS
@@ -1428,6 +1428,9 @@ uint64_t perft(const struct chess_ctx *ctx, int depth)
     return info.n;
 }
 
+uint64_t pondered;
+int moveno;
+
 struct move_t get_move(const struct chess_ctx *ctx, enum player color)
 {
     struct move_t ret;
@@ -1439,14 +1442,14 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
     ssize_t len = getline(&ptr, &sz, stdin);
     char *line = ptr;
 
-    if(!strncasecmp(line, "0-0-0", 5))
+    if(!strncasecmp(line, "0-0-0", 5) || !strncasecmp(line, "O-O-O", 5))
     {
         ret.color = color;
         ret.type = CASTLE;
         ret.data.castle_style = QUEENSIDE;
         goto done;
     }
-    else if(!strncasecmp(line, "0-0", 3))
+    else if(!strncasecmp(line, "0-0", 3) || !strncasecmp(line, "O-O", 3))
     {
         ret.color = color;
         ret.type = CASTLE;
@@ -1468,6 +1471,7 @@ struct move_t get_move(const struct chess_ctx *ctx, enum player color)
     }
     else if(!strncasecmp(line, "help", 4))
     {
+        moveno = 0;
         best_move_negamax(ctx, DEPTH, -999999, 999999, color, &ret, DEPTH);
         goto done;
     }
@@ -1499,9 +1503,6 @@ done:
 
     return ret;
 }
-
-uint64_t pondered;
-int moveno;
 
 struct negamax_info {
     int best;
@@ -1542,7 +1543,7 @@ bool negamax_cb(void *data, const struct chess_ctx *ctx, struct move_t move)
     }
     info->a = MAX(info->a, v);
 
-    if(info->depth == DEPTH)
+    if(info->depth == DEPTH && info->depth == info->full_depth)
     {
 #if defined(UCI) || DEPTH > 3
         printf("info currmove ");
