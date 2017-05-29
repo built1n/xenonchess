@@ -1,34 +1,37 @@
 #include "chess.h"
 
-#define DEPTH 2
+#define DEPTH 1
 #define MAX_DEPTH DEPTH + 2
 
 //#define AUTOMATCH
 #define UCI
+//#ifdef TEST_FEATURE
 //#define CHECK_EXTENSIONS
+//#endif
 
 #if defined(AUTOMATCH) && defined(UCI)
 #error stupid
 #endif
 
+static const int piece_values[] = { 0,
+                                    100, /* pawn */
+                                    500, /* rook */
+                                    320, /* knight */
+                                    330, /* bishop */
+                                    900, /* queen */
+                                    0  /* king, value doesn't matter */
+};
+
 int count_material(const struct chess_ctx *ctx, int color)
 {
     int total = 0;
-    static const int values[] = { 0,
-                                  100, /* pawn */
-                                  500, /* rook */
-                                  320, /* knight */
-                                  330, /* bishop */
-                                  900, /* queen */
-                                  20000  /* king */
-    };
     for(int y = 0; y < 8; ++y)
     {
         for(int x = 0; x < 8; ++x)
         {
             if(ctx->board[y][x].color == color)
             {
-                total += values[ctx->board[y][x].type];
+                total += piece_values[ctx->board[y][x].type];
                 total += location_bonuses[ctx->board[y][x].type - 1][color == WHITE ? y : 7 - y][x];
 
 #if 0
@@ -109,10 +112,8 @@ int eval_position(const struct chess_ctx *ctx, int color)
 //    score -= count_material(ctx, inv_player(color)) * 2;
     score += count_material(ctx, color);
     score -= count_material(ctx, inv_player(color));
-#ifdef TEST_FEATURE
     score += count_space(ctx, color);
     score -= count_space(ctx, inv_player(color));
-#endif
 
 #if 0
     if(can_castle(ctx, color, QUEENSIDE) || can_castle(ctx, color, KINGSIDE))
@@ -141,7 +142,13 @@ int eval_position(const struct chess_ctx *ctx, int color)
 
 #define valid_coords(y, x) ((0 <= y && y <= 7) && (0 <= x && x <= 7))
 
-int location_bonuses[6][8][8] =  {
+#ifdef TEST_FEATURE
+int location_bonuses[6][8][8];
+
+static const int location_bonuses_early[6][8][8] =  {
+#else
+int location_bonuses[6][8][8] = {
+#endif
     {
         // Pawns - early/mid
         //  A   B   C   D   E   F   G   H
@@ -210,6 +217,75 @@ int location_bonuses[6][8][8] =  {
         { -9, -9, -9, -9, -9, -9, -9, -9 }, // 6
         { -9, -9, -9, -9, -9, -9, -9, -9 }, // 7
         { -9, -9, -9, -9, -9, -9, -9, -9 } // 8
+    }
+};
+
+static const int location_bonuses_endgame[6][8][8] = {
+    // Pawns - endgame
+    { //  A   B   C   D   E   F   G   H
+        { 0,  0,  0,  0,  0,  0,  0,  0 }, // 1
+        { -17,-17,-17,-17,-17,-17,-17,-17 }, // 2
+        { -11,-11,-11,-11,-11,-11,-11,-11 }, // 3
+        { -7, -7, -7, -7, -7, -7, -7, -7 }, // 4
+        { 16, 16, 16, 16, 16, 16, 16, 16 }, // 5
+        { 55, 55, 55, 55, 55, 55, 55, 55 }, // 6
+        { 82, 82, 82, 82, 82, 82, 82, 82 }, // 7
+        { 0,  0,  0,  0,  0,  0,  0,  0 }, // 8
+    },
+    // Knights - endgame
+    { //  A   B   C   D   E   F   G   H
+        { -99,-99,-94,-88,-88,-94,-99,-99 }, // 1
+        { -81,-62,-49,-43,-43,-49,-62,-81 }, // 2
+        { -46,-27,-15, -9, -9,-15,-27,-46 }, // 3
+        { -22, -3, 10, 16, 16, 10, -3,-22 }, // 4
+        { -7, 12, 25, 31, 31, 25, 12, -7 }, // 5
+        { -2, 17, 30, 36, 36, 30, 17, -2 }, // 6
+        { -7, 12, 25, 31, 31, 25, 12, -7 }, // 7
+        { -21, -3, 10, 16, 16, 10, -3,-21 },  // 8
+    },
+    // Bishops - endgame
+    {   //  A   B   C   D   E   F   G   H
+        { -27,-21,-17,-15,-15,-17,-21,-27 }, // 1
+        { -10, -4,  0,  2,  2,  0, -4,-10 }, // 2
+        { 2,  8, 12, 14, 14, 12,  8,  2 }, // 3
+        { 11, 17, 21, 23, 23, 21, 17, 11 }, // 4
+        { 14, 20, 24, 26, 26, 24, 20, 14 }, // 5
+        { 13, 19, 23, 25, 25, 23, 19, 13 }, // 6
+        { 8, 14, 18, 20, 20, 18, 14,  8 }, // 7
+        { -2,  4,  8, 10, 10,  8,  4, -2 },  // 8
+    },{
+        // Rooks - endgame
+        //  A   B   C   D   E   F   G   H
+        { -32,-31,-30,-29,-29,-30,-31,-32 }, // 1
+        { -27,-25,-24,-24,-24,-24,-25,-27 }, // 2
+        { -15,-13,-12,-12,-12,-12,-13,-15 }, // 3
+        { 1,  2,  3,  4,  4,  3,  2,  1 }, // 4
+        { 15, 17, 18, 18, 18, 18, 17, 15 }, // 5
+        { 25, 27, 28, 28, 28, 28, 27, 25 }, // 6
+        { 27, 28, 29, 30, 30, 29, 28, 27 }, // 7
+        { 16, 17, 18, 19, 19, 18, 17, 16 },  // 8
+    },{
+        // Queens - endgame
+        //  A   B   C   D   E   F   G   H
+        { -61,-55,-52,-50,-50,-52,-55,-61 }, // 1
+        { -31,-26,-22,-21,-21,-22,-26,-31 }, // 2
+        { -8, -3,  1,  3,  3,  1, -3, -8 }, // 3
+        { 9, 14, 17, 19, 19, 17, 14,  9 }, // 4
+        { 19, 24, 28, 30, 30, 28, 24, 19 }, // 5
+        { 23, 28, 32, 34, 34, 32, 28, 23 }, // 6
+        { 21, 26, 30, 31, 31, 30, 26, 21 }, // 7
+        { 12, 17, 21, 23, 23, 21, 17, 12 },  // 8
+    },{
+        // Kings - endgame
+        //  A   B   C   D   E   F   G   H
+        { -34,-30,-28,-27,-27,-28,-30,-34 }, // 1
+        { -17,-13,-11,-10,-10,-11,-13,-17 }, // 2
+        { -2,  2,  4,  5,  5,  4,  2, -2 }, // 3
+        { 11, 15, 17, 18, 18, 17, 15, 11 }, // 4
+        { 22, 26, 28, 29, 29, 28, 26, 22 }, // 5
+        { 31, 34, 37, 38, 38, 37, 34, 31 }, // 6
+        { 38, 41, 44, 45, 45, 44, 41, 38 }, // 7
+        { 42, 46, 48, 50, 50, 48, 46, 42 },  // 8
     }
 };
 
@@ -1501,6 +1577,7 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int 
     info.full_depth = full_depth;
     info.a = a;
     info.b = b;
+
     if(depth > 0)
     {
         for(int y = 0; y < 8; ++y)
@@ -1522,6 +1599,36 @@ int best_move_negamax(const struct chess_ctx *ctx, int depth, int a, int b, int 
 
     return info.best;
 }
+
+float calculate_phase(const struct chess_ctx *ctx)
+{
+    int mat = count_material(ctx, WHITE) + count_material(ctx, BLACK);
+    static int start_material = -1;
+    if(start_material < 0)
+    {
+        struct chess_ctx new = new_game();
+        start_material = count_material(&new, WHITE) * 2;
+    }
+    int end_material = piece_values[KING] * 2;
+    return (float)(mat - start_material) / (float)(end_material - start_material);
+}
+
+#define INTERPOLATE(a, b, x) ((a) + ((b) - (a)) * (x))
+
+#ifdef TEST_FEATURE
+void init_pst(const struct chess_ctx *ctx)
+{
+    memset(location_bonuses, 0, sizeof(location_bonuses));
+    float phase = calculate_phase(ctx);
+    printf("game phase is %f\n", phase);
+    for(int i = 0; i < 6; ++i)
+        for(int y = 0; y < 8; ++y)
+            for(int x = 0; x < 8; ++x)
+                location_bonuses[i][y][x] = INTERPOLATE(location_bonuses_early[i][y][x],
+                                                        location_bonuses_endgame[i][y][x],
+                                                        phase);
+}
+#endif
 
 void print_status(const struct chess_ctx *ctx)
 {
@@ -1587,6 +1694,11 @@ int main()
         pondered = 0;
         moveno = 0;
         clock_t start = clock();
+
+#ifdef TEST_FEATURE
+        init_pst(&ctx);
+#endif
+
         best_move_negamax(&ctx, DEPTH, -999999, 999999, ctx.to_move, &best, DEPTH);
         clock_t end = clock();
         float time = (float)(end - start) / CLOCKS_PER_SEC;
